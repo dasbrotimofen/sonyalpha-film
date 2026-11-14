@@ -89,15 +89,24 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
 
     // Fn menu: one row per setting
     private static final String[] MENU_ROWS = {"Brand", "Film", "Strength", "WB", "Kelvin", "D-Range", "Halation", "Grain",
-            "Light leak", "Copy size", "Front dial", "Rear dial", "RAW format"};
+            "Light leak", "Copy size", "Front dial", "Rear dial", "RAW format",
+            "Metering", "Focus area", "AF mode", "Focus peaking", "Peaking colour", "Focus mode"};
     private static final int ROW_BRAND = 0, ROW_FILM = 1, ROW_STRENGTH = 2, ROW_WB = 3, ROW_KELVIN = 4, ROW_DRO = 5,
-            ROW_HALATION = 6, ROW_GRAIN = 7, ROW_LEAK = 8, ROW_SIZE = 9, ROW_FRONT = 10, ROW_REAR = 11, ROW_RAW = 12;
+            ROW_HALATION = 6, ROW_GRAIN = 7, ROW_LEAK = 8, ROW_SIZE = 9, ROW_FRONT = 10, ROW_REAR = 11, ROW_RAW = 12,
+            ROW_METER = 13, ROW_AREA = 14, ROW_AF = 15, ROW_PEAK = 16, ROW_PEAK_COLOR = 17, ROW_FOCUS = 18;
     /** Rows of the menu shown at once, so most of the picture stays visible while changing films. */
     private static final int MENU_WINDOW = 5;
     // What a dial does. Default: front = ISO, rear = shutter speed in S/M and exposure compensation in P/A.
     private static final String[] TURN_NAMES = {"Default", "Aperture", "Shutter speed", "ISO", "Exposure comp", "Film"};
     private static final int TURN_DEFAULT = 0, TURN_APERTURE = 1, TURN_SHUTTER = 2, TURN_ISO = 3, TURN_EV = 4, TURN_FILM = 5;
     private int frontDial, rearDial;
+    private final ShootingControls shootingControls = new ShootingControls(new ShootingControls.Reporter() {
+        public void error(String text) {
+            log(text);
+            int detail = text.indexOf(':');
+            showMessage(detail < 0 ? text : text.substring(0, detail));
+        }
+    });
     /** RAW recording modes the camera offers (compress / uncompress) and the one chosen; the app's own shooting session
      *  did not inherit the camera menu's uncompressed setting, so it is set here. */
     private final List<String> rawModes = new ArrayList<String>();
@@ -329,6 +338,15 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         applyDro();
         applyModeDial();
         applyEvDial();
+        try {
+            shootingControls.open(new SonyControls(camera));
+            log("shooting controls: metering=" + shootingControls.value(ShootingControls.METER)
+                    + ", area=" + shootingControls.value(ShootingControls.AREA)
+                    + ", AF=" + shootingControls.value(ShootingControls.AF)
+                    + ", peaking=" + shootingControls.value(ShootingControls.PEAK));
+            for (String param : camera.getSupportedParameters().flatten().split(";"))
+                if (param.toLowerCase(java.util.Locale.US).contains("peak")) log("peaking capability: " + param);
+        } catch (Throwable t) { log("shooting controls unavailable: " + t); }
         applyLook();
         refreshAll();
         handler.removeCallbacks(poll);
@@ -345,6 +363,25 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                 camera = CameraEx.open(0, null);
             }
             camera.setShutterListener(this);
+            try {
+                camera.setFocusDriveListener(new CameraEx.FocusDriveListener() {
+                    private Integer previous;
+                    public synchronized void onChanged(CameraEx.FocusPosition position, final CameraEx source) {
+                        if (position == null) return;
+                        final boolean moved = previous != null && previous.intValue() != position.currentPosition;
+                        previous = position.currentPosition;
+                        final int generation = shootingControls.focusGeneration();
+                        if (!moved) return;
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                if (camera != source || pausing || playback || takingPicture) return;
+                                shootingControls.focusMoved(generation);
+                                refreshExposureBar();
+                            }
+                        });
+                    }
+                });
+            } catch (Throwable t) { log("focus movement callback unavailable: " + t); }
             camera.setShutterSpeedChangeListener(new CameraEx.ShutterSpeedChangeListener() {
                 public void onShutterSpeedChange(final CameraEx.ShutterSpeedInfo info, CameraEx c) {
                     runOnUiThread(new Runnable() {
@@ -571,6 +608,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         handler.removeCallbacks(poll);
         handler.removeCallbacks(startRecording);
         startWhenReady = false;
+        shootingControls.close();
         releaseRecorder();
         stopMagnifier();
         clearLook();
@@ -830,6 +868,13 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     /** Left/right or the wheel: change the value on the highlighted row. */
     private void menuChange(int dir) {
         List<String> brands = menuBrands();
+        if (menuRow >= ROW_METER) {
+            if (takingPicture || recording || writingVideo) { showMessage("Wait for the camera to finish"); return; }
+            shootingControls.step(menuRow - ROW_METER, dir);
+            refreshMenu();
+            refreshExposureBar();
+            return;
+        }
         switch (menuRow) {
             case ROW_BRAND:
                 menuBrand = (menuBrand + dir + brands.size()) % brands.size();
@@ -1054,6 +1099,12 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
             frontDial == TURN_DEFAULT ? "Default  (ISO)" : TURN_NAMES[frontDial],
             rearDial == TURN_DEFAULT ? "Default  (shutter in S/M, EV in P/A)" : TURN_NAMES[rearDial],
             rawModes.isEmpty() ? "n/a" : rawLabel(rawMode.length() > 0 ? rawMode : rawModes.get(0)),
+            shootingControls.value(ShootingControls.METER),
+            shootingControls.value(ShootingControls.AREA),
+            shootingControls.value(ShootingControls.AF),
+            shootingControls.value(ShootingControls.PEAK),
+            shootingControls.value(ShootingControls.COLOR),
+            shootingControls.value(ShootingControls.FOCUS),
         };
         StringBuilder sb = new StringBuilder();
         // a short window of rows around the highlighted one keeps the picture in view
@@ -1375,6 +1426,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
 
     private void shoot() {
         if (camera == null || takingPicture) return;
+        shootingControls.releaseFocus();
         stopMagnifier();
         Develop.Options effects = new Develop.Options();
         FilmLibrary.Film selected = bypass ? null : film;
@@ -2246,6 +2298,15 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
             lastToggleKey = scan;
             lastToggleTime = now;
         }
+        if (scan == ScalarInput.ISV_KEY_SLI_AF_MF_AEL) {
+            shootingControls.release();
+            try {
+                KeyStatus state = ScalarInput.getKeyStatus(scan);
+                log("AF/MF-AEL selector: " + (state == null ? "none" : state.valid + "/" + state.status));
+            } catch (Throwable t) { log("selector read failed: " + t); }
+            refreshExposureBar();
+            return true;
+        }
         if (playback) return onPlaybackKey(scan);
         if (camera == null) return super.onKeyDown(keyCode, event);
         if (scan == ScalarInput.ISV_KEY_MODE_DIAL || (scan >= 534 && scan <= 551)) {
@@ -2253,16 +2314,48 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
             return true;
         }
         switch (scan) {
+            case ScalarInput.ISV_KEY_AFMF:
+            case ScalarInput.ISV_KEY_AEL:
+            case ScalarInput.ISV_KEY_AEL_AFMF:
+                if (event.getRepeatCount() == 0 && !takingPicture && !writingVideo && !recording) {
+                    int action = scan;
+                    if (scan == ScalarInput.ISV_KEY_AEL_AFMF) {
+                        try {
+                            KeyStatus state = ScalarInput.getKeyStatus(ScalarInput.ISV_KEY_SLI_AF_MF_AEL);
+                            log("combined AF/MF-AEL: " + (state == null ? "none" : state.valid + "/" + state.status));
+                            action = state != null && state.valid == 1 ? state.status : -1;
+                        } catch (Throwable t) { action = -1; }
+                    }
+                    if (action == ScalarInput.ISV_KEY_AFMF) {
+                        stopMagnifier();
+                        shootingControls.holdFocus();
+                    }
+                    else if (action == ScalarInput.ISV_KEY_AEL) shootingControls.holdExposure();
+                    else showMessage("AF/MF-AEL switch position not recognized");
+                    refreshExposureBar();
+                }
+                return true;
+            case ScalarInput.ISV_RING_CLOCKWISE:
+            case ScalarInput.ISV_RING_COUNTERCW:
+                if (!takingPicture && !recording && !writingVideo)
+                    shootingControls.focusMoved(shootingControls.focusGeneration());
+                refreshExposureBar();
+                return true;
             case ScalarInput.ISV_KEY_S1_1:
+                shootingControls.releaseFocus();
+                refreshExposureBar();
                 closeMenu();
                 stopMagnifier();
                 try {
-                    camera.getNormalCamera().autoFocus(null);
+                    if (!shootingControls.manualFocusSelected()) camera.getNormalCamera().autoFocus(null);
                 } catch (Throwable t) {
                     log("autoFocus failed: " + t);
                 }
                 return true;
             case ScalarInput.ISV_KEY_S1_2:
+                shootingControls.releaseFocus();
+                stopMagnifier();
+                refreshExposureBar();
                 return true;
             case ScalarInput.ISV_KEY_S2:
                 closeMenu();
@@ -2320,7 +2413,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                 return true;
             case ScalarInput.ISV_KEY_ENTER:
                 if (menuOpen) closeMenu();
-                else cycleMagnifier();
+                else if (!shootingControls.focusHeld()) cycleMagnifier();
                 return true;
             case ScalarInput.ISV_KEY_FN:
                 if (menuOpen) closeMenu();
@@ -2384,6 +2477,12 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         int scan = event.getScanCode();
         log("up " + scan + " code " + keyCode + " t " + event.getEventTime() + " menu " + menuOpen);
         switch (scan) {
+            case ScalarInput.ISV_KEY_AFMF:
+            case ScalarInput.ISV_KEY_AEL:
+            case ScalarInput.ISV_KEY_AEL_AFMF:
+                shootingControls.release();
+                refreshExposureBar();
+                return true;
             case ScalarInput.ISV_KEY_S1_1:
                 if (camera != null) {
                     try {
@@ -2488,6 +2587,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         if (magIndex >= 0) {
             sb.append("    zoom x").append(String.format("%.1f", magLevels.get(magIndex) / 100f));
         }
+        sb.append(shootingControls.indicator());
         exposureBar.setText(sb.toString());
     }
 

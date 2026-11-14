@@ -129,11 +129,13 @@ def build_tools():
     sources.append(ROOT / 'app/src/com/filmsim/app/Develop.java')
     sources.append(ROOT / 'app/src/com/filmsim/app/FilmLook.java')
     sources.append(ROOT / 'app/src/com/filmsim/app/PhotoFiles.java')
+    sources.append(ROOT / 'app/src/com/filmsim/app/ShootingControls.java')
     run(java_tool('javac'), '-encoding', 'UTF-8', '-source', '8', '-target', '8',
         '-Xlint:-options', '-d', out, argfile(out / 'sources.txt', sources))
     print('Built desktop tools', flush=True)
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.DevelopAlphaTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.PhotoFilesTest')
+    run(java_tool('java'), '-cp', out, 'com.filmsim.tools.ShootingControlsTest')
 
 
 def build_app(module):
