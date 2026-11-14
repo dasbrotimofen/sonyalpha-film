@@ -76,22 +76,35 @@ public class Developer {
         cleanTemp();
     }
 
-    /** The copy made right after a shot: always DVnnnnn.JPG. */
+    /** Automatic copies use the same non-overwriting allocation as darkroom copies. */
     public synchronized void add(File jpeg, Develop.Options opt) {
-        String out = outName(jpeg.getName());
-        if (queued(out)) return;
-        enqueue(new Job(jpeg, opt, out));
+        addCopy(jpeg, opt);
     }
 
     /** A copy asked for in playback (JPEG or RAW). Each one gets its own name, which is returned. */
     public synchronized String addCopy(File photo, Develop.Options opt) {
-        String out = null;
-        for (int i = 0; i < SLOTS.length(); i++) {
-            out = outName(photo.getName(), SLOTS.charAt(i));
-            if (!new File(outDir, out + ".JPG").exists() && !queued(out)) break;
+        if (cancelled && worker != null) {
+            listener.onFailed(photo.getName(), new IOException("Previous development is stopping; try again shortly"));
+            return null;
+        }
+        File dir = PhotoFiles.copyDirectory(outDir, photo);
+        String[] names = new String[SLOTS.length()];
+        for (int i = 0; i < names.length; i++) names[i] = outName(photo.getName(), SLOTS.charAt(i));
+        java.util.Set<String> reserved = new java.util.HashSet<String>();
+        for (Job j : queue) reserved.add(j.out);
+        final String out;
+        try { out = PhotoFiles.availableCopy(dir, names, reserved).getPath(); }
+        catch (IOException error) {
+            listener.onFailed(photo.getName(), error);
+            return null;
         }
         enqueue(new Job(photo, opt, out));
-        return out;
+        return new File(out).getName();
+    }
+
+    public static File newestCopy(File outDir, File photo) {
+        File scoped = newestCopy(PhotoFiles.copyDirectory(outDir, photo), photo.getName());
+        return scoped != null ? scoped : newestCopy(outDir, photo.getName());
     }
 
     /** The newest copy of a photo, or null when it has none. */
@@ -99,17 +112,9 @@ public class Developer {
         File best = null;
         for (int i = 0; i < SLOTS.length(); i++) {
             File f = new File(outDir, outName(photo, SLOTS.charAt(i)) + ".JPG");
-            if (f.isFile()) best = f;
-            else if (i > 0) break;
+            if (f.isFile() && (best == null || f.lastModified() >= best.lastModified())) best = f;
         }
         return best;
-    }
-
-    private boolean queued(String out) {
-        for (Job j : queue) {
-            if (j.out.equals(out)) return true;
-        }
-        return false;
     }
 
     private void enqueue(Job job) {
@@ -168,16 +173,17 @@ public class Developer {
     private File develop(Job job) throws IOException {
         Develop.Options opt = job.opt;
         waitUntilStable(job.src);
-        outDir.mkdirs();
-        File tmp = new File(outDir, job.out + ".TMP");
-        File done = new File(outDir, job.out + ".JPG");
+        File done = new File(job.out + ".JPG");
+        File dir = done.getParentFile();
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Cannot create copy directory");
+        File tmp = new File(job.out + ".TMP");
         File src = job.src;
         File preview = null;
         if (src.getName().toUpperCase().endsWith(".ARW")) {
             // a RAW file: work from the JPEG preview stored inside it, copied out to a scratch file
             byte[] jpeg = ArwPreview.read(src);
             if (jpeg == null) throw new IOException("no preview inside " + src.getName());
-            preview = new File(outDir, job.out + ".PRV");
+            preview = new File(job.out + ".PRV");
             FileOutputStream fo = new FileOutputStream(preview);
             try {
                 fo.write(jpeg);
@@ -210,8 +216,11 @@ public class Developer {
             if (!ok) tmp.delete();
             if (preview != null) preview.delete();
         }
-        done.delete();
-        if (!tmp.renameTo(done)) throw new IOException("could not rename " + tmp.getName());
+        if (cancelled || done.exists()) {
+            tmp.delete();
+            throw new IOException("Copy cancelled or destination already exists; existing copy kept");
+        }
+        PhotoFiles.publish(tmp, done);
         return done;
     }
 
@@ -357,7 +366,8 @@ public class Developer {
                 os.write(0xFF);
                 os.write(0xD8);
                 if (exif != null) os.write(exif);
-                full.compress(Bitmap.CompressFormat.JPEG, 92, new SkipStart(os));
+                if (!full.compress(Bitmap.CompressFormat.JPEG, 92, new SkipStart(os)))
+                    throw new IOException("JPEG encoding failed");
             } finally {
                 os.close();
             }
@@ -467,6 +477,7 @@ public class Developer {
             }
         }
         if (cancelled) throw new IOException("cancelled");
+        throw new IOException("Timed out waiting for photo to finish saving");
     }
 
     /** 8.3-safe output name: "DV" plus the photo's number, e.g. JES05218.JPG -> DV05218. */

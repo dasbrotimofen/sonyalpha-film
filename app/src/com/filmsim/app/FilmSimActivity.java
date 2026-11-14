@@ -77,7 +77,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     private View pickerPanel;
 
     private CameraEx camera;
-    private boolean takingPicture;
+    private volatile boolean takingPicture;
     private boolean pausing;
 
     // Look state
@@ -199,18 +199,28 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     // Video: the camera is reopened in movie mode for recording, then back in photo mode afterwards.
     private MediaRecorder recorder;
     private boolean movieMode;
-    private boolean recording;
-    private boolean writingVideo;
+    private volatile boolean recording;
+    private volatile boolean writingVideo;
     private boolean startWhenReady;
     private int recTime = -1;
 
     // Developed copies, made in the background after each shot
     private Developer developer;
     private int developing;
-    private FilmLibrary.Film shotFilm;
-    /** Newest files before the next shot. The camera's clock can't be trusted (it reads 1970), so new files are
-     * the ones that weren't there before. */
-    private File knownPhoto, knownJpeg;
+    private volatile Capture pendingCapture;
+    private static final class Capture {
+        final Map<String, String> before;
+        final String label;
+        final long time;
+        final Develop.Options effects;
+        boolean callbackHandled;
+        Capture(Map<String, String> before, String label, Develop.Options effects) {
+            this.before = before;
+            this.label = label;
+            this.effects = effects;
+            this.time = System.currentTimeMillis();
+        }
+    }
     /** The saved film when it's one of the user's LUTs, which only exist once they've been loaded. */
     private String pendingFilmKey;
     private Thread customLoader;
@@ -289,9 +299,6 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         openLog();
         notifyAppInfo();
         restorePrefs();
-        File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
-        knownPhoto = newestPhoto(dcim);
-        knownJpeg = newestJpeg(dcim);
         if (!openCamera()) return;
         readCapabilities();
         startShooting();
@@ -302,6 +309,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     protected void onPause() {
         super.onPause();
         pausing = true;
+        pendingCapture = null;
         developer.cancel();
         handler.removeCallbacksAndMessages(null);
         savePrefs();
@@ -1368,117 +1376,107 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     private void shoot() {
         if (camera == null || takingPicture) return;
         stopMagnifier();
+        Develop.Options effects = new Develop.Options();
+        FilmLibrary.Film selected = bypass ? null : film;
+        effects.halation = halation;
+        effects.grain = grainFor(selected);
+        effects.lightLeak = lightLeak;
+        effects.sample = largeCopy ? 2 : 4;
+        effects.monochrome = selected != null && "Black & white".equals(selected.type);
+        String label = selected == null ? "No film" : selected.brand + " " + selected.name + " " + strength + "%";
+        File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
+        pendingCapture = new Capture(PhotoFiles.snapshot(dcim), label, effects);
         takingPicture = true;
         try {
             camera.burstableTakePicture();
         } catch (Throwable t) {
+            pendingCapture = null;
             takingPicture = false;
             log("burstableTakePicture failed: " + t);
         }
     }
 
-    /** The exposure is finished: end the burst after one frame. */
-    public void onShutter(int status, CameraEx cameraEx) {
-        try {
-            cameraEx.cancelTakePicture();
-        } catch (Throwable t) {
-            log("cancelTakePicture failed: " + t);
+    public void onShutter(final int status, final CameraEx cameraEx) {
+        final Capture shot = pendingCapture;
+        if (shot == null) return;
+        synchronized (shot) {
+            if (shot.callbackHandled) return;
+            shot.callbackHandled = true;
         }
-        final String label = film == null || bypass ? "No film" : film.brand + " " + film.name + " " + strength + "%";
-        shotFilm = bypass ? null : film;
-        final long shotTime = System.currentTimeMillis();
+        // Stop the burst immediately, rather than waiting for the UI thread.
+        if (status == CameraEx.ShutterListener.STATUS_OK) {
+            try { cameraEx.cancelTakePicture(); }
+            catch (Throwable ignored) {}
+        }
         runOnUiThread(new Runnable() {
             public void run() {
-                takingPicture = false;
-                handler.postDelayed(new Runnable() {
-                    public void run() {
-                        recordShot(label, shotTime);
-                    }
-                }, 3000);
+                if (pendingCapture != shot || pausing) return;
+                if (status != CameraEx.ShutterListener.STATUS_OK) {
+                    pendingCapture = null;
+                    takingPicture = false;
+                    showMessage("Capture failed or was cancelled (" + status + ")");
+                    return;
+                }
+                new Thread(new Runnable() {
+                    public void run() { awaitCapturedFile(shot); }
+                }, "capture-file").start();
             }
         });
     }
 
-    /** Appends "photo file, film, time" to FILMSIM/SHOTS.TXT once the photo has been written. */
-    private void recordShot(String label, long shotTime) {
-        if (takingPicture) {
-            final String l = label;
-            final long t = shotTime;
-            handler.postDelayed(new Runnable() {
-                public void run() {
-                    recordShot(l, t);
+    /** Keep capture busy until a single new image identity has stopped changing. */
+    private void awaitCapturedFile(final Capture shot) {
+        try {
+            File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
+            Map<String, String> previous = null;
+            int stable = 0;
+            for (int attempt = 0; attempt < 60 && pendingCapture == shot; attempt++) {
+                Map<String, String> now = PhotoFiles.snapshot(dcim);
+                final File source = PhotoFiles.captured(shot.before, now);
+                stable = source != null && source.length() > 0 && now.equals(previous) ? stable + 1 : 0;
+                previous = now;
+                if (stable >= 4) {
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            if (pendingCapture != shot || pausing) return;
+                            pendingCapture = null;
+                            takingPicture = false;
+                            recordShot(shot, source);
+                        }
+                    });
+                    return;
                 }
-            }, 1000);
-            return;
+                Thread.sleep(500);
+            }
+            if (pendingCapture == shot) throw new IOException("Timed out identifying the saved photo");
+        } catch (final Exception error) {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    if (pendingCapture != shot) return;
+                    pendingCapture = null;
+                    takingPicture = false;
+                    log("capture association failed: " + error);
+                    showMessage(error.getMessage());
+                }
+            });
         }
-        File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
-        File newest = newestPhoto(dcim);
-        boolean newPhoto = newest != null && !newest.equals(knownPhoto);
-        String name = newPhoto ? newest.getName() : "?";
-        knownPhoto = newest;
+    }
+
+    private void recordShot(Capture shot, File source) {
         try {
             File dir = new File(Environment.getExternalStorageDirectory(), "FILMSIM");
             dir.mkdirs();
             FileWriter w = new FileWriter(new File(dir, "SHOTS.TXT"), true);
             try {
-                w.write(name + "\t" + label + "\t" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(shotTime)) + "\n");
-            } finally {
-                w.close();
-            }
-        } catch (IOException e) {
-            log("shot log failed: " + e);
+                w.write(source.getParentFile().getName() + "/" + source.getName() + "\t" + shot.label + "\t"
+                        + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(shot.time)) + "\n");
+            } finally { w.close(); }
+        } catch (IOException e) { log("shot log failed: " + e); }
+        if (shot.effects.any()) {
+            if (source.getName().toUpperCase().endsWith(".ARW")) shot.effects.sample = 1;
+            shot.effects.seed = source.getName().hashCode() * 31L + shot.time;
+            developer.add(source, shot.effects);
         }
-        if (!developOn()) knownJpeg = newestJpeg(dcim);
-        if (developOn()) {
-            File jpeg = newestJpeg(dcim);
-            boolean fresh = jpeg != null && !jpeg.equals(knownJpeg);
-            knownJpeg = jpeg;
-            // RAW only: develop the 1616 px preview stored inside the RAW file instead
-            File source = fresh ? jpeg : newPhoto && newest.getName().toUpperCase().endsWith(".ARW") ? newest : null;
-            if (source != null) {
-                Develop.Options opt = new Develop.Options();
-                opt.halation = halation;
-                opt.grain = grainFor(shotFilm);
-                opt.lightLeak = lightLeak;
-                opt.sample = !fresh ? 1 : largeCopy ? 2 : 4;
-                opt.monochrome = shotFilm != null && "Black & white".equals(shotFilm.type);
-                opt.seed = source.getName().hashCode() * 31L + shotTime;
-                developer.add(source, opt);
-            } else {
-                showMessage("Couldn't find the new photo to develop");
-            }
-        }
-    }
-
-    private static File newestJpeg(File dcim) {
-        File best = null;
-        File[] dirs = dcim.listFiles();
-        if (dirs == null) return null;
-        for (File d : dirs) {
-            File[] files = d.listFiles();
-            if (files == null) continue;
-            for (File f : files) {
-                if (f.getName().toUpperCase().endsWith(".JPG") && (best == null || f.lastModified() > best.lastModified())) best = f;
-            }
-        }
-        return best;
-    }
-
-    private static File newestPhoto(File dcim) {
-        File best = null;
-        File[] dirs = dcim.listFiles();
-        if (dirs == null) return null;
-        for (File d : dirs) {
-            File[] files = d.listFiles();
-            if (files == null) continue;
-            for (File f : files) {
-                String n = f.getName().toUpperCase();
-                if ((n.endsWith(".JPG") || n.endsWith(".ARW")) && (best == null || f.lastModified() > best.lastModified())) {
-                    best = f;
-                }
-            }
-        }
-        return best;
     }
 
     // ---------------- playback ----------------
@@ -1750,13 +1748,14 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         }
         if (name == null || name.length() == 0) name = new File(data).getName();
         File devDir = new File(new File(Environment.getExternalStorageDirectory(), "FILMSIM"), "DEV");
-        File dev = Developer.newestCopy(devDir, name);
+        File actual = new File(data);
+        playFile = actual.isFile() ? actual : findPhoto(name);
+        File dev = playFile == null ? Developer.newestCopy(devDir, name) : Developer.newestCopy(devDir, playFile);
         boolean hasDev = dev != null;
         if (dev == null) dev = new File(devDir, Developer.outName(name) + ".JPG");
         playName = name;
         playOrientation = orientation;
         playExif = info;
-        playFile = findPhoto(name);
         // while a film is being tried the original shows first, then the preview replaces it
         boolean previewing = darkFilm != null && showDeveloped;
         if (!hasDev || !showDeveloped || previewing) {
@@ -1768,36 +1767,9 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         String via = "";
         releaseDevImage();
         if (hasDev && showDeveloped && !previewing) {
-            // Sony's viewer shows full colour; try it first
-            try {
-                OptimizedImageFactory.Options o = new OptimizedImageFactory.Options();
-                o.imageType = 3;
-                o.colorType = OptimizedImageFactory.Options.SRGB;
-                devImage = OptimizedImageFactory.decodeImage(dev.getAbsolutePath(), o);
-            } catch (Throwable t) {
-                log("viewer decode of copy failed: " + t);
-                devImage = null;
-            }
-            if (devImage != null) {
-                devView.setImageBitmap(null);
-                releaseDevBitmap();
-                devView.setVisibility(View.GONE);
-                playView.setVisibility(View.VISIBLE);
-                try {
-                    playView.setOptimizedImage(devImage);
-                    devShown = true;
-                    via = "viewer";
-                } catch (Throwable t) {
-                    log("viewer show of copy failed: " + t);
-                    releaseDevImage();
-                }
-            }
-            if (!devShown && showDevCopy(dev, orientation)) {
-                // Sony's viewer draws on its own layer above the app's views, so hide it under the overlay copy
-                playView.setVisibility(View.INVISIBLE);
-                devShown = true;
-                via = "overlay";
-            }
+            showDevCopy(dev, orientation);
+            devShown = true; // The original stays visible until the background result arrives.
+            via = "background overlay";
         }
         if (!devShown) {
             playView.setVisibility(View.VISIBLE);
@@ -1839,7 +1811,9 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         } else {
             head = !playHasDev ? "" : playDevShown ? "COPY (C1: original)" : "ORIGINAL (C1: copy)";
         }
-        String filmUsed = shotFilms.get(playName.toUpperCase());
+        String filmUsed = playFile == null ? null : shotFilms.get(
+                (playFile.getParentFile().getName() + "/" + playFile.getName()).toUpperCase());
+        if (filmUsed == null) filmUsed = shotFilms.get(playName.toUpperCase());
         StringBuilder sb = new StringBuilder();
         if (head.length() > 0) sb.append(head).append("   ");
         sb.append(playName).append("   ");
@@ -2022,7 +1996,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     }
 
     private void showPreview(Bitmap b, int gen) {
-        if (!playback || gen != previewGen || devView == null || (darkFilm == null && !plainPreview) || !showDeveloped) {
+        if (!playback || gen != previewGen || devView == null || (darkFilm == null && !plainPreview && !playDevShown) || !showDeveloped) {
             b.recycle();
             return;
         }
@@ -2060,6 +2034,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         opt.monochrome = darkFilm != null && "Black & white".equals(darkFilm.type);
         opt.seed = playFile.getName().hashCode() * 31L + System.currentTimeMillis();
         String out = developer.addCopy(playFile, opt);
+        if (out == null) return;
         log("darkroom copy " + playFile.getName() + " -> " + out + " film " + (darkFilm == null ? "none" : darkFilm.name) + " " + darkStrength + "%");
         showMessage("Saving " + out + ".JPG" + (darkFilm != null ? " with " + darkFilm.name : "")
                 + (raw ? " (from the RAW's preview)" : ""));
@@ -2129,6 +2104,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                     if (fresh) {
                         baseFile = null;
                         base = null;
+                        out = null;
                         load(f, orientation);
                         baseFile = f;
                         if (superseded()) continue;
@@ -2136,7 +2112,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                     final long t1 = System.currentTimeMillis();
                     if (out == null || out.length != base.length) out = new int[base.length];
                     System.arraycopy(base, 0, out, 0, base.length);
-                    if (!look.isIdentity()) look.apply(out, 0, out.length);
+                    if (look != null && !look.isIdentity()) look.apply(out, 0, out.length);
                     final Bitmap b = Bitmap.createBitmap(out, bw, bh, Bitmap.Config.ARGB_8888);
                     final long t2 = System.currentTimeMillis();
                     final String size = bw + "x" + bh, name = f.getName();
@@ -2175,10 +2151,15 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
             }
             o.inJustDecodeBounds = false;
             o.inSampleSize = 1;
-            while (o.outWidth / (o.inSampleSize * 2) >= 640) o.inSampleSize *= 2;
+            int screenW = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+            int screenH = Math.max(1, getResources().getDisplayMetrics().heightPixels);
+            boolean rotated = orientation == 6 || orientation == 8;
+            o.inSampleSize = PhotoFiles.previewSample(o.outWidth, o.outHeight,
+                    rotated ? screenH : screenW, rotated ? screenW : screenH);
             Bitmap b = jpeg != null ? BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length, o) : BitmapFactory.decodeFile(f.getPath(), o);
             jpeg = null;
             if (b == null) throw new IOException("cannot decode " + f.getName());
+            try {
             int deg = orientation == 6 ? 90 : orientation == 3 ? 180 : orientation == 8 ? 270 : 0;
             if (deg != 0) {
                 Matrix m = new Matrix();
@@ -2191,44 +2172,22 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
             bh = b.getHeight();
             int[] px = new int[bw * bh];
             b.getPixels(px, 0, bw, 0, 0, bw, bh);
-            b.recycle();
             base = px;
+            } finally { b.recycle(); }
         }
     }
 
-    /** Decodes the developed copy at screen size and shows it over the original. */
-    private boolean showDevCopy(File dev, int orientation) {
+    /** Reuse the bounded preview worker; never decode or rotate copies on the UI thread. */
+    private void showDevCopy(File dev, int orientation) {
         devView.setImageBitmap(null);
         releaseDevBitmap();
-        try {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(dev.getPath(), o);
-            o.inJustDecodeBounds = false;
-            o.inSampleSize = 1;
-            while (o.outWidth / (o.inSampleSize * 2) >= 800) o.inSampleSize *= 2;
-            Bitmap b = BitmapFactory.decodeFile(dev.getPath(), o);
-            if (b == null) {
-                devView.setVisibility(View.GONE);
-                return false;
-            }
-            int deg = orientation == 6 ? 90 : orientation == 3 ? 180 : orientation == 8 ? 270 : 0;
-            if (deg != 0) {
-                Matrix m = new Matrix();
-                m.postRotate(deg);
-                Bitmap r = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
-                if (r != b) b.recycle();
-                b = r;
-            }
-            devBitmap = b;
-            devView.setImageBitmap(b);
-            devView.setVisibility(View.VISIBLE);
-            return true;
-        } catch (Throwable t) {
-            log("showDevCopy failed: " + t);
-            devView.setVisibility(View.GONE);
-            return false;
+        devView.setVisibility(View.GONE);
+        if (playView != null) playView.setVisibility(View.VISIBLE);
+        if (previewWorker == null) {
+            previewWorker = new PreviewWorker();
+            previewWorker.start();
         }
+        previewWorker.request(dev, orientation, null, ++previewGen);
     }
 
     /** Photo file name -> film it was shot with, from FILMSIM/SHOTS.TXT. */
