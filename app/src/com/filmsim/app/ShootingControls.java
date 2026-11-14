@@ -27,7 +27,7 @@ public final class ShootingControls {
     private final List<List<String>> choices = new ArrayList<List<String>>();
     private final boolean[] changed = new boolean[NAMES.length];
     private boolean focusHeld, aeHeld;
-    private boolean focusToggled, magnified, peakActive, focusButtonPressed;
+    private boolean focusToggled, magnified, peakActive, focusButtonPressed, zoomSuppressed;
     private volatile int focusGeneration;
     private String priorLock;
 
@@ -39,7 +39,7 @@ public final class ShootingControls {
     public void open(Backend backend) {
         this.backend = backend;
         focusHeld = aeHeld = false;
-        focusToggled = magnified = peakActive = focusButtonPressed = false;
+        focusToggled = magnified = peakActive = focusButtonPressed = zoomSuppressed = false;
         focusGeneration++;
         for (int i = 0; i < NAMES.length; i++) {
             choices.get(i).clear(); original[i] = null; changed[i] = false;
@@ -73,6 +73,10 @@ public final class ShootingControls {
         return "manual".equals(selected[FOCUS]) || "dmf".equals(selected[FOCUS]);
     }
 
+    public boolean manualFocusActive() {
+        return focusHeld || focusToggled || manualFocusSelected();
+    }
+
     public void step(int setting, int direction) {
         List<String> values = choices.get(setting);
         if (backend == null || values.isEmpty()) { reporter.error("This control is unavailable in the current camera mode"); return; }
@@ -98,6 +102,7 @@ public final class ShootingControls {
                 focusToggled = true;
             }
             focusHeld = true;
+            zoomSuppressed = false;
             focusGeneration++;
             if (!choices.get(PEAK).isEmpty()) {
                 peakActive = true;
@@ -111,12 +116,21 @@ public final class ShootingControls {
     public boolean focusHeld() { return focusHeld; }
 
     public void focusMoved(int generation) {
-        if (backend == null || !focusHeld || magnified || generation != focusGeneration) return;
+        if (backend == null || !focusHeld || zoomSuppressed || magnified || generation != focusGeneration) return;
         try { backend.magnify(); magnified = true; }
         catch (Exception | LinkageError e) { reporter.error("Focus magnification unavailable: " + e); }
     }
 
-    /** Half shutter ends focus assist without releasing an independently held AEL. */
+    /** Shutter cancels zoom, but MF and peaking remain active until button release. */
+    public void cancelFocusZoom() {
+        focusGeneration++;
+        zoomSuppressed = true;
+        if (backend == null || !magnified) return;
+        try { backend.stopMagnification(); magnified = false; }
+        catch (Exception | LinkageError e) { reporter.error("Stop focus magnification: " + e); }
+    }
+
+    /** Restore focus only when the held button is released or the camera closes. */
     public void releaseFocus() {
         focusGeneration++;
         if (backend == null || (!focusHeld && !magnified && !focusToggled && !peakActive)) return;

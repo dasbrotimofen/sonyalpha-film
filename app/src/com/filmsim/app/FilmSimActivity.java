@@ -1426,7 +1426,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
 
     private void shoot() {
         if (camera == null || takingPicture) return;
-        shootingControls.releaseFocus();
+        shootingControls.cancelFocusZoom();
         stopMagnifier();
         Develop.Options effects = new Develop.Options();
         FilmLibrary.Film selected = bypass ? null : film;
@@ -2342,18 +2342,18 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                 refreshExposureBar();
                 return true;
             case ScalarInput.ISV_KEY_S1_1:
-                shootingControls.releaseFocus();
+                shootingControls.cancelFocusZoom();
                 refreshExposureBar();
                 closeMenu();
                 stopMagnifier();
                 try {
-                    if (!shootingControls.manualFocusSelected()) camera.getNormalCamera().autoFocus(null);
+                    if (!shootingControls.manualFocusActive()) camera.getNormalCamera().autoFocus(null);
                 } catch (Throwable t) {
                     log("autoFocus failed: " + t);
                 }
                 return true;
             case ScalarInput.ISV_KEY_S1_2:
-                shootingControls.releaseFocus();
+                shootingControls.cancelFocusZoom();
                 stopMagnifier();
                 refreshExposureBar();
                 return true;
