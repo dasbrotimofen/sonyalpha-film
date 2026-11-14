@@ -1,48 +1,48 @@
 # To do
 
-## Spektrafilm looks are way too dark and contrasty (next session)
+Current build: **v1.10.10-test4** (version code 45). Desktop regression tests and APK signature/alignment verification pass. Camera validation is tracked separately below.
 
-The 22 looks in the Spektrafilm brand need changing before they are usable. Judged on full-size renders of a
-real photo, they are far too dark and contrasty: shadows crush to black and the subject turns into a silhouette.
-The user confirmed this again on 2026-11-14 (new computer): "too dark and contrasty". Fix both together, and
-check overall brightness as well as contrast (mid grey and the shadows should not sink).
+## Priority: validate the new shooting controls on the a6500
 
-Why: spektrafilm expects a flat, unprocessed picture, and the camera hands the app a finished one that already
-has its own contrast curve. The film and print curves then go on top of that, so contrast is applied twice.
+- [ ] Install test4 and confirm that holding AF/MF keeps manual focus active through half-shutter and capture, even with Fn Focus mode set to Auto. Half-shutter must cancel magnification without starting autofocus; releasing AF/MF must restore Auto.
+- [ ] Confirm Fn Focus mode Manual prevents half-shutter autofocus, survives playback/reopen within the session, and can be switched back to Auto.
+- [ ] Check focus-ring magnification while AF/MF is held, release/half-shutter cancellation, and suppression of further zoom until the button is released and pressed again. Verify the actual magnification ratio; 5.9x is not yet confirmed.
+- [ ] Verify AF/MF?AEL selector event codes and held AEL behavior, including restoration of an already locked exposure. Unknown selector codes are logged rather than guessed.
+- [ ] Verify each advertised metering mode, focus area and AF mode on the camera.
+- [ ] Check whether native peaking level and colour are exposed, whether peaking stays on throughout the AF/MF hold, and whether the original settings are restored on camera close. Unsupported peaking currently shows Unavailable; no software fallback exists.
+- [ ] Exercise playback, recording, selector changes and app exit during/after holds to check state restoration.
 
-Things to try, in `tools/spektrafilm/bake.py`:
+## Development performance and reliability
 
-- Undo the camera's own tone curve before the film model, so the simulation sees something closer to scene
-  light. For example treat the input as a flatter encoding than sRGB, or apply an inverse S-curve to the grid.
-- Keep the simulation's colour but soften its tone: blend the baked LUT's tone curve part of the way back to
-  a straight line while leaving the colour differences alone.
-- Lift the black point. Mid grey is pinned at 0.50 and paper white is scaled to 0.97, but nothing protects
-  the shadows (input 0.25 comes out at 0.16).
-- A softer print stock where there is a choice (Portra Endura is the contrastiest of the papers tried).
-- Check each change on the test photos at full size, not on contact sheets.
+- [ ] Measure on-camera development time for Small/Large copies with grain, halation and light leaks separately and together. Separate source-file waiting, decoding, effects and encoding before choosing further optimizations.
+- [ ] Validate capture matching under slow-card writes and repeated shots, RAW-only and RAW+JPEG, duplicate photo numbers in different DCIM folders, and ambiguous matches. Desktop tests cover matching and rejection, but do not reproduce camera timing.
+- [ ] Check copy-name exhaustion, card-full/write failures and existing developed versions on camera. Keep all new copies directly in `FILMSIM/DEV/` and preserve existing files.
 
-UPDATE 2026-11-14: bake.py now blends the grey curve 45% towards the film curve and lifts the black to 0.025
-(BLEND and FLOOR at the top). The LUTs were rebaked into _shared/spektrafilm-luts (old ones in
-_shared/spektrafilm-luts-old) and look much better on JES05348. STILL TO DO: run tools ConvertFilms on them,
-rebuild, install, judge on the camera, and tune BLEND/FLOOR if needed.
+## Other outstanding work
 
-Until this is fixed, Strength at 50% or lower is the workaround on the camera.
+- [ ] Verify RAW format selection on camera using `raw rec modes` / `raw rec mode set` logs and ARW file sizes. The earlier v1.10.9 notes did not confirm this check.
+- [ ] Improve Spektrafilm colour fitting: the softened tone is implemented, but the looks still rate one star and lose colour richness in the camera curve/matrix approximation.
+- [ ] Consider movable flexible focus spots; the current Focus area row selects a mode only.
+- [ ] Decide whether to persist the new shooting-control choices across app restarts. They currently survive camera reopenings within the same activity session only.
 
-Also still open:
+Spektrafilm LUT generation still requires the external spektrafilm checkout and its Python dependencies; the LUT sources are not included here. See `tools/spektrafilm/bake.py` and the README. Further tone tuning should be judged on full-size photos and on camera, including brightness and shadow detail.
 
-- v1.10.8 is committed but has not been installed or tested on the camera (the camera has v1.10.6). New in it:
-  the grain texture, Auto grain, and the Spektrafilm brand.
-- All Spektrafilm looks rate one star. The fit keeps the tone but loses colour richness.
-- Setting up on a new computer: the Spektrafilm LUTs are not in this repo. Clone spektrafilm, install its
-  Python packages, and run `tools/spektrafilm/bake.py` (see the top of that file and the README).
+## Completed: v1.10.10-test4 and recent fixes
 
-## Done 2026-11-14 (v1.10.9, built, installed only up to the playback fix)
+- [x] Fix half-shutter restoring autofocus during an AF/MF hold. Half-shutter and capture now cancel only focus zoom; held MF and peaking remain active until release. Regression coverage includes repeat events, stale/current ring callbacks, capture cancellation and restoration. Camera confirmation remains pending above.
+- [x] Add Fn Metering, Focus area, AF mode, Focus peaking, Peaking colour and Auto/Manual Focus mode using camera-advertised capabilities.
+- [x] Add held AF/MF manual-focus assist, ring-triggered native magnification and held AEL. Avoid toggling an already manual-focus camera into AF; restore prior state on release/close.
+- [x] Fix black developed JPEGs by preserving opaque alpha in effect pixels. Confirmed working by the user on a6500 firmware 1.04; effect regression tests cover alpha.
+- [x] Snapshot effect settings per capture, pair RAW/JPEG sources, wait for stable source metadata, and reject ambiguous capture matches.
+- [x] Reserve available copy names and publish copies without overwriting existing outputs.
+- [x] Restore flat `FILMSIM/DEV/` output after the per-photo folder regression; confirmed working by the user. Existing nested copies retain playback lookup support.
+- [x] Decode developed-copy previews at bounded screen size on a background worker, avoiding full-size decoding/rotation on the UI thread.
+- [x] Add reproducible Windows/Linux setup and builds with pinned dependencies, desktop regression tests, APK verification and GitHub Actions artifacts. See `docs/build.md`.
 
-- Spektrafilm looks softened (BLEND 0.45, FLOOR 0.025 in tools/spektrafilm/bake.py); the user likes them now.
-- Playback in the app showed RAW shots lighter than the camera's own playback: Sony's viewer renders a RAW afresh
-  without the look. Now plain RAW playback shows the preview stored in the ARW (flash of the light version first).
-- The Kelvin row says "off" unless WB is Kelvin.
-- Shots taken inside the app were compressed RAW (~24.8 MB) while the camera menu said uncompressed; one shot
-  outside the app was 49 MB. New Fn row "RAW format" sets the mode through setRawRecMode (default Uncompressed).
-  NOT yet tried on the camera: check the log for "raw rec modes" and "raw rec mode set", and ARW sizes.
-- The identity look pass is skipped in plain RAW playback (it cost ~400 ms).
+## Completed: v1.10.9
+
+- [x] Soften and integrate Spektrafilm looks using BLEND 0.45 and FLOOR 0.025; the previous notes record that the user liked the result. This supersedes the old pending ConvertFilms/rebuild task.
+- [x] Show the embedded ARW preview for plain RAW playback, preserving the saved look rather than using Sony's fresh RAW rendering.
+- [x] Show Kelvin as off unless Kelvin white balance is selected.
+- [x] Add the RAW format Fn row through `setRawRecMode`, defaulting to Uncompressed; hardware validation remains listed above.
+- [x] Skip the identity-look pass in plain RAW playback.

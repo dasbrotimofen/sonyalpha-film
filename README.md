@@ -22,12 +22,23 @@ You choose a film, the screen shows it in real time, and your JPEGs and videos c
 - Full manual exposure: shutter speed, aperture (with lenses the camera can control), ISO (including Auto), exposure compensation and the mode dial (P, A, S, M)
 - Choose what the front and rear dials do
 - White balance presets and Kelvin in 100K steps
+- Metering, focus area, AF mode and Auto/Manual focus selection in Fn, using the options supported by the camera
+- Held AF/MF manual-focus assist with native peaking when available and focus-ring magnification; held AEL exposure lock
 - Focus magnifier for manual lenses
 - Video recording with the look applied (MOVIE button)
 - Photo playback inside the app, with the film name for each shot
 - Remembers your last film, strength and white balance
 - Keeps a list of which film you used for each photo in `FILMSIM/SHOTS.TXT` on the card
 - Everything it changes is put back when you leave the app
+
+## Recent changes (v1.10.10-test4)
+
+- Fixed black developed JPEGs caused by missing opaque alpha in effect output. The fix was confirmed on a Sony a6500 running firmware 1.04.
+- Capture settings are saved per shot, RAW/JPEG pairs are matched together, and the app waits for the source file to settle before processing it. Ambiguous matches are rejected.
+- Developed copies and darkroom versions are saved directly in `FILMSIM/DEV/`, with no new folder per photo. Existing copies are not overwritten. Playback loads copies at screen size in the background.
+- Added the Fn shooting controls and held AF/MF/AEL behavior described below. In test4, half-shutter cancels focus zoom while preserving held manual focus and peaking; it no longer restores autofocus before the AF/MF button is released.
+
+Desktop regression tests and the signed APK build pass. The black-image and flat-folder fixes have been confirmed on the camera; the latest focus changes still need camera validation. See [TODO.md](TODO.md) for outstanding checks.
 
 ## How it works
 
@@ -62,7 +73,7 @@ Turn these on in the Fn menu and the app makes a developed copy of each JPEG in 
 - **Grain** comes in Fine, Medium, Heavy and Coarse (bigger clumps, like pushed high speed film), or Auto, which follows the speed of the film you picked. It sits in the midtones and shadows like real film grain. Colour films get a little separate grain in each colour layer, coarsest in blue as on real film, and black and white films get none
 - **Light leak** adds a soft warm leak coming in from one edge of the frame, different every shot
 
-In Film Sim's playback you see the developed copy, and C1 switches to the original. Copies are saved to `FILMSIM/DEV` on the card as `DV` plus the photo number, for example `DV05218.JPG`, at either a quarter of the photo's width (Small, the default) or half of it (Large). Small copies take seconds, Large ones a minute or two, and the screen shows "Developing" while it works. It pauses while you take a photo or record, so it never gets in the way. If you shoot RAW only, the copy is made from the preview picture inside the RAW file and is 1616 px wide. For bigger copies set Quality to RAW & JPEG or JPEG.
+In Film Sim's playback you see the developed copy, and C1 switches to the original. Copies are saved to `FILMSIM/DEV` on the card as `DV` plus the photo number, for example `DV05218.JPG`, at either a quarter of the photo's width (Small, the default) or half of it (Large). Small copies take seconds, Large ones a minute or two, and the screen shows "Developing" while it works. Processing yields while you take a photo or record. Capture also waits for the new source file to settle before accepting the next shot, so there can be a delay between shots. If you shoot RAW only, the copy is made from the preview picture inside the RAW file and is 1616 px wide. For bigger copies set Quality to RAW & JPEG or JPEG.
 
 ## Darkroom: films on photos you've already taken
 
@@ -128,9 +139,9 @@ For landscapes try Velvia 50, Provia 100F or Ektar 100. For the deep violet blue
 
 ## Cameras
 
-Tested on the Sony A7 II (ILCE-7M2) with firmware 4.01.
+Tested on the Sony A7 II (ILCE-7M2) with firmware 4.01. The recent development fixes were also confirmed on a Sony a6500 with firmware 1.04.
 
-It may also work on other Sony cameras that ran PlayMemories camera apps and supported Sony's Liveview Grading app, but I haven't tried any. If you test it on another body, please open an issue and say how it went.
+It may also work on other Sony cameras that ran PlayMemories camera apps and supported Sony's Liveview Grading app, but support for individual controls varies by body and firmware. If you test it on another body, please open an issue and say how it went.
 
 ## Installing
 
@@ -167,6 +178,8 @@ To remove the app, use **MENU > Application > Application Management** on the ca
 | Fn | Open or close the menu (see below) |
 | C3 | Open the menu on white balance |
 | Centre button | Focus magnifier. Press again to zoom further, arrows move it, half press the shutter to leave |
+| AF/MF button (hold) | Temporary manual focus and supported native peaking. Turn an electronic focus ring while holding to magnify; half-shutter exits zoom without enabling AF. Release restores the selected focus mode |
+| AEL button (hold) | Lock exposure until release, then restore the previous lock state |
 | C1 | Turn the look off and on to compare |
 | C2 | Strength 100, 75, 50, 25%. In the menu, adds or removes the highlighted film from Favourites |
 | Up or DISP | Hide or show the info on screen |
@@ -189,13 +202,31 @@ Up and down pick a row, left and right (or the control wheel) change it. The loo
 | Halation | Off or On |
 | Grain | Off, Fine, Medium, Heavy, Coarse or Auto. Auto picks the level from the film's speed, so Portra 160 gets fine grain and Delta 3200 gets coarse |
 | Light leak | Off or On |
-| Copy size | Small (1500 px wide, quick) or Large (3000 px wide, takes a minute or two) |
+| Copy size | Small (quarter width) or Large (half width): 1500 or 3000 px for a 6000 px JPEG. Processing time depends on effects and source size |
 | Front dial | Default (ISO), Aperture, Shutter speed, ISO, Exposure comp or Film |
 | Rear dial | Default (shutter speed in S and M, exposure comp in P and A), Aperture, Shutter speed, ISO, Exposure comp or Film |
+
+| RAW format | Compressed or Uncompressed, when supported by the camera |
+| Metering | Cycle through camera-supported metering modes |
+| Focus area | Cycle through camera-supported area modes; moving a flexible spot is not implemented |
+| AF mode | Camera-supported autofocus modes, such as AF-S and AF-C |
+| Focus peaking | Native peaking level during the AF/MF hold; Off disables it |
+| Peaking colour | Camera-supported native peaking colours |
+| Focus mode | Auto (AF) or Manual (MF), when supported |
 
 Press Fn, centre or MENU to close it. Half pressing the shutter closes it too.
 
 Aperture control needs a lens the camera can control electronically. With a manual or adapted lens you set the aperture on the lens as usual, and the F number isn't shown.
+
+### AF/MF hold and focus assist
+
+On cameras with the AF/MF?AEL lever, the button follows the selected position when the camera reports a recognized selector code. Unknown codes are logged in `FILMSIM/LOG.TXT`; they are not guessed.
+
+Hold AF/MF to enter temporary manual focus and enable peaking when available. Turning an electronically reported focus ring starts the first supported native magnification step. A fully mechanical lens cannot report ring movement; use the centre-button magnifier instead. The exact magnification, including whether it is 5.9x on the a6500, still needs camera verification.
+
+Half-shutter or capture cancels magnification but keeps manual focus and peaking active while AF/MF remains held. Ring movement cannot restart zoom until you release and press AF/MF again. Releasing the button, changing the selector, or closing the camera ends the hold. Half-shutter leaves an independently held AEL active. Selecting Manual in Fn also prevents the app from requesting autofocus on half-shutter.
+
+Unsupported controls show **Unavailable**. Peaking requires the camera to advertise native peaking parameters; there is no software peaking fallback. The new Fn shooting choices survive camera reopenings within the current app session, but are not saved across app restarts. Previous camera values are restored when the camera is released. See [focus-assist notes](docs/focus-assist.md) for implementation and test details.
 
 ## Good to know
 
@@ -230,7 +261,7 @@ python scripts/build.py all
 
 Setup downloads checksum-verified, pinned dependencies into the ignored `.deps/` directory: Temurin JDK 17, Android API 10, build-tools 36.0.0, Jasmin, and the [OpenMemories-Framework](https://github.com/ma1co/OpenMemories-Framework) Sony API stubs. It does not change your system PATH. No pip packages, Gradle, or Android Studio are needed for the normal build. The Android SDK is distributed under Google's [SDK license](https://developer.android.com/studio/terms).
 
-The build compiles the desktop tools and creates `app/FilmSim.apk` and `probe/FilmProbe.apk`. Both APKs are zip-aligned, debug-signed with v1 signatures for Android 2.3, and signature-verified. Use `app`, `probe`, or `tools` instead of `all` to build one component. Builds run offline after setup. Keep each module's ignored `debug.keystore` to preserve its signing identity between builds; CI artifacts use temporary debug keys and are not release-signed updates.
+The build compiles the desktop tools, runs regression tests for effect alpha, file handling and shooting controls, and creates `app/FilmSim.apk` and `probe/FilmProbe.apk`. Both APKs are zip-aligned, debug-signed with v1 signatures for Android 2.3, and signature-verified. Use `app`, `probe`, or `tools` instead of `all` to build one component. Builds run offline after setup. Keep each module's ignored `debug.keystore` to preserve its signing identity between builds; CI artifacts use temporary debug keys and are not release-signed updates.
 
 GitHub Actions runs the same setup and build on Windows and Linux for pushes and pull requests, and uploads both APKs. See [the build notes](docs/build.md) for the source map and validation commands.
 
