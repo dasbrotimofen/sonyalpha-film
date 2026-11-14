@@ -5,3 +5,8 @@ build/
 *.keystore
 # preview sheets rendered from personal photos
 previews/
+
+# repository-local toolchain and Python caches
+.deps/
+__pycache__/
+*.pyc

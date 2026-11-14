@@ -319,7 +319,8 @@ public class Develop {
                     int ir = R <= 0 ? 0 : R >= 255 ? 255 : (int) R;
                     int ig = G <= 0 ? 0 : G >= 255 ? 255 : (int) G;
                     int ib = B <= 0 ? 0 : B >= 255 ? 255 : (int) B;
-                    band[base + x] = (ir << 16) | (ig << 8) | ib;
+                    // Bitmap.setPixels interprets these as ARGB; zero alpha makes the native copy black.
+                    band[base + x] = 0xFF000000 | (ir << 16) | (ig << 8) | ib;
                 }
             }
             long t2 = System.nanoTime();
@@ -354,7 +355,7 @@ public class Develop {
             r = r < 0 ? 0 : r > 255 ? 255 : r;
             g = g < 0 ? 0 : g > 255 ? 255 : g;
             b = b < 0 ? 0 : b > 255 ? 255 : b;
-            band[base + x] = (r << 16) | (g << 8) | b;
+            band[base + x] = 0xFF000000 | (r << 16) | (g << 8) | b;
         }
     }
 

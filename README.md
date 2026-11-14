@@ -221,7 +221,20 @@ The project has three parts:
 - `tools/` turns film LUTs into the camera's curve and matrix, holds the designed looks, and renders preview sheets.
 - `probe/` is a small test app that checks what a camera's colour pipeline supports.
 
-You'll need JDK 8 or newer, the Android SDK with `platforms;android-10` and build-tools 36, and a compile-only jar of Sony's camera API. Build that jar from the stubs in [OpenMemories-Framework](https://github.com/ma1co/OpenMemories-Framework) with the Jasmin assembler. Then:
+On Windows or Linux x64, install Python 3.12 or newer, then run from the repository root:
+
+```
+python scripts/build.py setup
+python scripts/build.py all
+```
+
+Setup downloads checksum-verified, pinned dependencies into the ignored `.deps/` directory: Temurin JDK 17, Android API 10, build-tools 36.0.0, Jasmin, and the [OpenMemories-Framework](https://github.com/ma1co/OpenMemories-Framework) Sony API stubs. It does not change your system PATH. No pip packages, Gradle, or Android Studio are needed for the normal build. The Android SDK is distributed under Google's [SDK license](https://developer.android.com/studio/terms).
+
+The build compiles the desktop tools and creates `app/FilmSim.apk` and `probe/FilmProbe.apk`. Both APKs are zip-aligned, debug-signed with v1 signatures for Android 2.3, and signature-verified. Use `app`, `probe`, or `tools` instead of `all` to build one component. Builds run offline after setup. Keep each module's ignored `debug.keystore` to preserve its signing identity between builds; CI artifacts use temporary debug keys and are not release-signed updates.
+
+GitHub Actions runs the same setup and build on Windows and Linux for pushes and pull requests, and uploads both APKs. See [the build notes](docs/build.md) for the source map and validation commands.
+
+The original Bash scripts remain available for an externally managed SDK and JDK. They require `ANDROID_SDK_ROOT` with `platforms;android-10` and build-tools 36.0.0, and `SONY_STUBS` pointing to a compile-only Sony API jar:
 
 ```
 cd app
@@ -232,7 +245,7 @@ To change the film list, edit `tools/films.csv` and rebuild `app/assets`. LUT en
 
 ```
 cd tools
-javac -d build src/com/filmsim/tools/*.java
+javac -d build src/com/filmsim/tools/*.java ../app/src/com/filmsim/app/Develop.java ../app/src/com/filmsim/app/FilmLook.java
 java -cp build com.filmsim.tools.ConvertFilms films.csv /path/to/FilmCamera/app/src/main/res/raw ../app/assets
 ```
 

@@ -1,0 +1,37 @@
+{
+  "jdk-windows": {
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.18%2B8/OpenJDK17U-jdk_x64_windows_hotspot_17.0.18_8.zip",
+    "algorithm": "sha256",
+    "checksum": "c24e6215fa75f861d2a900ceec67c620cd2eb6dfb81541087d5981293b16f0e5"
+  },
+  "jdk-linux": {
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.18%2B8/OpenJDK17U-jdk_x64_linux_hotspot_17.0.18_8.tar.gz",
+    "algorithm": "sha256",
+    "checksum": "0c94cbb54325c40dcf026143eb621562017db5525727f2d9131a11250f72c450"
+  },
+  "android": {
+    "url": "https://dl.google.com/android/repository/android-2.3.3_r02.zip",
+    "algorithm": "sha1",
+    "checksum": "887e37783ec32f541ea33c2c649dda648e8e6fb3"
+  },
+  "build-tools-windows": {
+    "url": "https://dl.google.com/android/repository/build-tools_r36_windows.zip",
+    "algorithm": "sha1",
+    "checksum": "f16ccffd34de8790dede813a6c7d8e2c11a27b50"
+  },
+  "build-tools-linux": {
+    "url": "https://dl.google.com/android/repository/build-tools_r36_linux.zip",
+    "algorithm": "sha1",
+    "checksum": "b0b6376977657e8ad9b969bacf4093601da2c6fb"
+  },
+  "jasmin": {
+    "url": "https://downloads.sourceforge.net/project/jasmin/jasmin/jasmin-2.4/jasmin-2.4.zip",
+    "algorithm": "sha256",
+    "checksum": "eaa10c68cec68206fd102e9ec7113739eccd790108a1b95a6e8c3e93f20e449d"
+  },
+  "sony": {
+    "url": "https://codeload.github.com/ma1co/OpenMemories-Framework/zip/f8df3504d8684433a331ee869e64f67cc8be9730",
+    "algorithm": "sha256",
+    "checksum": "f9c45c62cab9f21e806d9cce6cce4e6ef23c11d3a92f12a871596e878f681e6c"
+  }
+}
