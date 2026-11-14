@@ -40,6 +40,11 @@ public final class PhotoFiles {
     }
 
     public static File copyDirectory(File root, File source) {
+        return root;
+    }
+
+    /** Read compatibility for copies produced by fix2; never used for new output. */
+    public static File legacyCopyDirectory(File root, File source) {
         String name = source.getName();
         int dot = name.lastIndexOf('.');
         return new File(new File(root, source.getParentFile().getName()), dot < 0 ? name : name.substring(0, dot));

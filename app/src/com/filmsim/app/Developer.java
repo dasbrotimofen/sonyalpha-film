@@ -103,8 +103,10 @@ public class Developer {
     }
 
     public static File newestCopy(File outDir, File photo) {
-        File scoped = newestCopy(PhotoFiles.copyDirectory(outDir, photo), photo.getName());
-        return scoped != null ? scoped : newestCopy(outDir, photo.getName());
+        File flat = newestCopy(outDir, photo.getName());
+        File scoped = newestCopy(PhotoFiles.legacyCopyDirectory(outDir, photo), photo.getName());
+        if (flat == null) return scoped;
+        return scoped != null && scoped.lastModified() > flat.lastModified() ? scoped : flat;
     }
 
     /** The newest copy of a photo, or null when it has none. */

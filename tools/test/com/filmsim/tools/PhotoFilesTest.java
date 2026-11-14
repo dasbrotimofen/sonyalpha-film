@@ -36,14 +36,16 @@ public class PhotoFilesTest {
             } catch (IOException expected) {}
             File a = PhotoFiles.copyDirectory(root, jpg);
             File b = PhotoFiles.copyDirectory(root, new File(dcim, "101MSDCF/DSC00002.JPG"));
-            check(!a.equals(b), "same number in different folders must not collide");
+            check(a.equals(root) && b.equals(root), "all new copies go directly in DEV");
             check(a.equals(PhotoFiles.copyDirectory(root, raw)), "RAW+JPEG share copy identity");
-            check(a.mkdirs(), "copy directory");
+            check(!PhotoFiles.legacyCopyDirectory(root, jpg).equals(root), "fix2 layout remains readable separately");
             Set<String> reserved = new HashSet<String>();
             String[] slots = {"DV00002", "D200002", "D300002"};
             Files.write(new File(a, slots[0] + ".JPG").toPath(), new byte[] {42});
             reserved.add(new File(a, slots[1]).getPath());
             check(PhotoFiles.availableCopy(a, slots, reserved).getName().equals(slots[2]), "skip disk and queued copies");
+            check(PhotoFiles.availableCopy(b, slots, reserved).getName().equals(slots[2]),
+                    "same-number photos from another folder cannot overwrite occupied slots");
             reserved.add(new File(a, slots[2]).getPath());
             try {
                 PhotoFiles.availableCopy(a, slots, reserved);
@@ -64,7 +66,7 @@ public class PhotoFilesTest {
                 check((size[0] + sample - 1) / sample <= 640 && (size[1] + sample - 1) / sample <= 480,
                         "preview fits both display dimensions");
             }
-            System.out.println("PASS capture identity, RAW pairing, ambiguity rejection, copy isolation/reservation/exhaustion, safe publication, preview bounds");
+            System.out.println("PASS capture identity, RAW pairing, ambiguity rejection, flat output/reservation/exhaustion, safe publication, preview bounds");
         } finally { remove(root); }
     }
 
