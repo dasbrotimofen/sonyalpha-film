@@ -31,14 +31,15 @@ You choose a film, the screen shows it in real time, and your JPEGs and videos c
 - Keeps a list of which film you used for each photo in `FILMSIM/SHOTS.TXT` on the card
 - Everything it changes is put back when you leave the app
 
-## Recent changes (v1.10.10-test4)
+## Recent changes (v1.10.10-test6)
 
 - Fixed black developed JPEGs caused by missing opaque alpha in effect output. The fix was confirmed on a Sony a6500 running firmware 1.04.
 - Capture settings are saved per shot, RAW/JPEG pairs are matched together, and the app waits for the source file to settle before processing it. Ambiguous matches are rejected.
-- Developed copies and darkroom versions are saved directly in `FILMSIM/DEV/`, with no new folder per photo. Existing copies are not overwritten. Playback loads copies at screen size in the background.
+- New developed copies and darkroom versions use `DSC0xxxx.JPG` names in a separate numbered DCIM folder such as `101FILMS`. Existing copies are not overwritten; older `FILMSIM/DEV/` copies remain readable. Playback loads copies at screen size in the background.
+- Rebuilt copy EXIF now records the actual output dimensions and includes a thumbnail of the developed effects. Standard capture details are retained; opaque Sony MakerNotes and stale original preview metadata are omitted.
 - Added the Fn shooting controls and held AF/MF/AEL behavior described below. In test4, half-shutter cancels focus zoom while preserving held manual focus and peaking; it no longer restores autofocus before the AF/MF button is released.
 
-Desktop regression tests and the signed APK build pass. The black-image and flat-folder fixes have been confirmed on the camera; the latest focus changes still need camera validation. See [TODO.md](TODO.md) for outstanding checks.
+Desktop regression tests and the signed APK build pass. The black-image and flat-folder fixes have been confirmed on the camera; the latest focus changes and DCIM/Imaging Edge workflow still need camera validation. See [TODO.md](TODO.md) for outstanding checks.
 
 ## How it works
 
@@ -73,7 +74,22 @@ Turn these on in the Fn menu and the app makes a developed copy of each JPEG in 
 - **Grain** comes in Fine, Medium, Heavy and Coarse (bigger clumps, like pushed high speed film), or Auto, which follows the speed of the film you picked. It sits in the midtones and shadows like real film grain. Colour films get a little separate grain in each colour layer, coarsest in blue as on real film, and black and white films get none
 - **Light leak** adds a soft warm leak coming in from one edge of the frame, different every shot
 
-In Film Sim's playback you see the developed copy, and C1 switches to the original. Copies are saved to `FILMSIM/DEV` on the card as `DV` plus the photo number, for example `DV05218.JPG`, at either a quarter of the photo's width (Small, the default) or half of it (Large). Small copies take seconds, Large ones a minute or two, and the screen shows "Developing" while it works. Processing yields while you take a photo or record. Capture also waits for the new source file to settle before accepting the next shot, so there can be a delay between shots. If you shoot RAW only, the copy is made from the preview picture inside the RAW file and is 1616 px wide. For bigger copies set Quality to RAW & JPEG or JPEG.
+In Film Sim's playback you see the developed copy, and C1 switches to the original. New copies are saved in a separate numbered DCIM folder such as `101FILMS`, with a basename such as `DSC05218.JPG`, at either a quarter of the photo's width (Small, the default) or half of it (Large). Small copies take seconds, Large ones a minute or two, and the screen shows "Developing" while it works. Processing yields while you take a photo or record. Capture also waits for the new source file to settle before accepting the next shot, so there can be a delay between shots. If you shoot RAW only, the copy is made from the preview picture inside the RAW file and is 1616 px wide. For bigger copies set Quality to RAW & JPEG or JPEG.
+
+### Imaging Edge Mobile transfer (experimental)
+
+A developed copy manually renamed to an unused `DSC0xxxx.JPG` name and followed by **Recover Image DB** was confirmed visible in both the a6500 gallery and Imaging Edge Mobile. Test6 now uses that filename pattern in a separate folder, for example:
+
+```text
+DCIM/10061115/DSC04869.JPG   original
+DCIM/101FILMS/DSC04869.JPG   developed copy
+```
+
+The separate-folder layout and rebuilt metadata still require camera testing. After development finishes, exit FilmSim, run **MENU > Setup > Recover Image DB**, and check the developed image in playback and **Send to Smartphone**. Automatic registration is not implemented. Sony documents recovery for registering external images in the [a6500 playback guide](https://helpguide.sony.net/ilc/1640/v1/en/contents/TP0001273844.html).
+
+FilmSim chooses the next unused folder number above existing DCIM folders and reuses its folder for subsequent copies from the same source folder. It fails safely if no folder number remains. The source image number is preferred; extra versions take another free number. Hidden `.filmsim` and `.source` files record ownership and source relationships; retain these files for correct playback association. Existing JPEGs, RAW files and pending copies are never overwritten. Source mappings distinguish originals and developed copies with identical filenames in different folders.
+
+Old `FILMSIM/DEV` and test5 `DV` copies remain readable and are not moved automatically. A phone-compatible card reader can access those files directly. The old `DV`/version prefix plus six digits remains reserved for FilmSim output and excluded from new-shot detection.
 
 ## Darkroom: films on photos you've already taken
 
@@ -87,7 +103,7 @@ Press Play to review your photos, then press up or down (or turn the front or re
 - **Delete** goes back to plain playback
 - **Left and right** move to another photo and keep the same film, so you can check one look across a whole set
 
-The original photo is never changed. Copies go to `FILMSIM/DEV` next to the developed ones. The first copy of a photo is `DV` plus its number, and further versions are `D2`, `D3` and so on, so you can keep several looks of the same shot.
+The original photo is never changed. Copies use `DSC0xxxx.JPG` names in a separate numbered `FILMS` folder under DCIM. The original number is reused when free; later versions get another unused number, with their source relationship recorded separately. Older output layouts remain readable.
 
 It works on JPEGs and on RAW files. For a RAW file the app uses the small preview picture that the camera stores inside every RAW, so those copies are 1616 px wide. JPEG copies follow the Copy size setting. If you shot RAW & JPEG the JPEG is used.
 

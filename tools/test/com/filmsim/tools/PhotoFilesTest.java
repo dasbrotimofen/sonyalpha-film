@@ -35,17 +35,41 @@ public class PhotoFilesTest {
                 throw new AssertionError("ambiguous shots must not be guessed");
             } catch (IOException expected) {}
             File a = PhotoFiles.copyDirectory(root, jpg);
-            File b = PhotoFiles.copyDirectory(root, new File(dcim, "101MSDCF/DSC00002.JPG"));
-            check(a.equals(root) && b.equals(root), "all new copies go directly in DEV");
-            check(a.equals(PhotoFiles.copyDirectory(root, raw)), "RAW+JPEG share copy identity");
-            check(!PhotoFiles.legacyCopyDirectory(root, jpg).equals(root), "fix2 layout remains readable separately");
+            File otherSource = new File(dcim, "102MSDCF/DSC00002.JPG");
+            check(otherSource.getParentFile().mkdirs(), "second source folder");
+            File b = PhotoFiles.copyDirectory(root, otherSource);
+            check(a.getName().equals("101FILMS") && b.getName().equals("103FILMS"), "allocate distinct unused numbered folders");
+            check(a.equals(PhotoFiles.copyDirectory(root, raw)), "RAW+JPEG share output folder");
+            File copy = PhotoFiles.allocateCopy(root, jpg);
+            check(copy.getName().equals("DSC00002") && copy.getParentFile().equals(a), "retain source number in FILMS folder");
+            File version = PhotoFiles.allocateCopy(root, raw);
+            check(version.getName().equals("DSC00003"), "queued reservation cannot collide");
+            Map<String, String> captured = PhotoFiles.snapshot(dcim);
+            File developed = new File(copy + ".JPG");
+            Files.write(developed.toPath(), new byte[] {1,2,3});
+            check(PhotoFiles.snapshot(dcim).equals(captured), "developed DSC output excluded from capture detection");
+            check(PhotoFiles.newestMappedCopy(jpg).equals(developed), "persistent source lookup");
+            check(PhotoFiles.newestMappedCopy(raw).equals(developed), "RAW and JPEG resolve same copy");
+            check(PhotoFiles.newestMappedCopy(otherSource) == null, "same-number different folder not confused");
+            Files.write(new File(a, "DSC00004.ARW").toPath(), new byte[] {1});
+            check(PhotoFiles.allocateCopy(root, jpg).getName().equals("DSC00005"), "RAW originals in output folder are never reused");
+            check(PhotoFiles.snapshot(dcim).size() == captured.size() + 1, "unmapped camera files remain detectable even in FILMS");
+            try {
+                PhotoFiles.copyDirectory(root, new File(root, "outside.JPG"));
+                throw new AssertionError("outside DCIM");
+            } catch (IOException expected) {}
+            check(new File(dcim, "999OTHER").mkdirs(), "occupied last number");
+            try {
+                PhotoFiles.copyDirectory(root, new File(dcim, "104MSDCF/DSC00001.JPG"));
+                throw new AssertionError("folder exhaustion must fail");
+            } catch (IOException expected) {}
             Set<String> reserved = new HashSet<String>();
-            String[] slots = {"DV00002", "D200002", "D300002"};
+            String[] slots = {"DV000002", "D2000002", "D3000002"};
             Files.write(new File(a, slots[0] + ".JPG").toPath(), new byte[] {42});
             reserved.add(new File(a, slots[1]).getPath());
             check(PhotoFiles.availableCopy(a, slots, reserved).getName().equals(slots[2]), "skip disk and queued copies");
-            check(PhotoFiles.availableCopy(b, slots, reserved).getName().equals(slots[2]),
-                    "same-number photos from another folder cannot overwrite occupied slots");
+            check(PhotoFiles.availableCopy(b, slots, reserved).getName().equals(slots[0]),
+                    "same-number originals in different folders have separate copy slots");
             reserved.add(new File(a, slots[2]).getPath());
             try {
                 PhotoFiles.availableCopy(a, slots, reserved);
@@ -66,7 +90,7 @@ public class PhotoFilesTest {
                 check((size[0] + sample - 1) / sample <= 640 && (size[1] + sample - 1) / sample <= 480,
                         "preview fits both display dimensions");
             }
-            System.out.println("PASS capture identity, RAW pairing, ambiguity rejection, flat output/reservation/exhaustion, safe publication, preview bounds");
+            System.out.println("PASS capture identity, RAW pairing, ambiguity rejection, DCIM output/reservation/exhaustion/capture exclusion, safe publication, preview bounds");
         } finally { remove(root); }
     }
 

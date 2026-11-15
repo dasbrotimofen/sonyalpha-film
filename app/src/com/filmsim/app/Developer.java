@@ -16,7 +16,7 @@ import java.util.LinkedList;
 
 /**
  * Background queue that makes developed copies (halation, grain, light leaks, and film looks chosen in
- * playback) in FILMSIM/DEV, at a half (Large) or quarter (Small) of the photo's width and height.
+ * playback) in a separate numbered DCIM/FILMS folder, at a half (Large) or quarter (Small) of the photo's width and height.
  * A RAW file is developed from the JPEG preview stored inside it. The original photo is only ever read.
  * Each copy is written to a .TMP file and renamed when complete, so a cut-off run never leaves a broken JPEG.
  */
@@ -87,17 +87,9 @@ public class Developer {
             listener.onFailed(photo.getName(), new IOException("Previous development is stopping; try again shortly"));
             return null;
         }
-        File dir = PhotoFiles.copyDirectory(outDir, photo);
-        String[] names = new String[SLOTS.length()];
-        for (int i = 0; i < names.length; i++) names[i] = outName(photo.getName(), SLOTS.charAt(i));
-        java.util.Set<String> reserved = new java.util.HashSet<String>();
-        for (Job j : queue) reserved.add(j.out);
         final String out;
-        try { out = PhotoFiles.availableCopy(dir, names, reserved).getPath(); }
-        catch (IOException error) {
-            listener.onFailed(photo.getName(), error);
-            return null;
-        }
+        try { out = PhotoFiles.allocateCopy(outDir, photo).getPath(); }
+        catch (IOException error) { listener.onFailed(photo.getName(), error); return null; }
         enqueue(new Job(photo, opt, out));
         return new File(out).getName();
     }
@@ -105,8 +97,17 @@ public class Developer {
     public static File newestCopy(File outDir, File photo) {
         File flat = newestCopy(outDir, photo.getName());
         File scoped = newestCopy(PhotoFiles.legacyCopyDirectory(outDir, photo), photo.getName());
-        if (flat == null) return scoped;
-        return scoped != null && scoped.lastModified() > flat.lastModified() ? scoped : flat;
+        File best = flat;
+        if (scoped != null && (best == null || scoped.lastModified() > best.lastModified())) best = scoped;
+        // Indexed developed copies are displayed directly, not replaced with a sibling version.
+        if (PhotoFiles.isDevelopedCopy(photo.getName()) || PhotoFiles.isMappedCopy(photo)) return null;
+        for (int i = 0; i < SLOTS.length(); i++) {
+            File copy = new File(photo.getParentFile(), PhotoFiles.dcimCopyName(photo.getName(), SLOTS.charAt(i)) + ".JPG");
+            if (copy.isFile() && (best == null || copy.lastModified() >= best.lastModified())) best = copy;
+        }
+        File mapped = PhotoFiles.newestMappedCopy(photo);
+        if (mapped != null && (best == null || mapped.lastModified() >= best.lastModified())) best = mapped;
+        return best;
     }
 
     /** The newest copy of a photo, or null when it has none. */
@@ -203,14 +204,15 @@ public class Developer {
         try {
             String how;
             try {
-                how = developNative(src, tmp, opt, exif);
+                how = developNative(src, tmp, opt, null);
             } catch (OutOfMemoryError e) {
                 // ran out part way through: start again the slow way, which needs very little memory
                 memNote += ", out of memory, streaming";
                 tmp.delete();
                 how = null;
             }
-            if (how == null) how = developStreaming(src, tmp, opt, exif);
+            if (how == null) how = developStreaming(src, tmp, opt, null);
+            rewriteCopyExif(tmp, exif);
             lastTiming = (opt.look != null ? "film " : "") + (opt.halation ? "halation " : "") + (opt.grain > 0 ? "grain" + opt.grain + " " : "")
                     + (opt.lightLeak ? "leak " : "") + "| " + how;
             ok = true;
@@ -224,6 +226,57 @@ public class Developer {
         }
         PhotoFiles.publish(tmp, done);
         return done;
+    }
+
+    /** Build the thumbnail from the finished effects, identically for native and streaming output. */
+    private void rewriteCopyExif(File jpeg, byte[] original) throws IOException {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(jpeg.getPath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Invalid developed JPEG");
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = PhotoFiles.previewSample(bounds.outWidth, bounds.outHeight, 320, 240);
+        Bitmap decoded = BitmapFactory.decodeFile(jpeg.getPath(), options);
+        if (decoded == null) throw new IOException("Cannot create developed thumbnail");
+        Bitmap thumb = null;
+        byte[] metadata;
+        try {
+            double scale = Math.min(160.0 / decoded.getWidth(), 120.0 / decoded.getHeight());
+            thumb = Bitmap.createScaledBitmap(decoded, Math.max(1, (int)(decoded.getWidth() * scale)),
+                    Math.max(1, (int)(decoded.getHeight() * scale)), true);
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            if (!thumb.compress(Bitmap.CompressFormat.JPEG, 85, bytes)) throw new IOException("Thumbnail encoding failed");
+            metadata = CopyExif.build(original, bounds.outWidth, bounds.outHeight, bytes.toByteArray());
+        } finally {
+            if (thumb != null && thumb != decoded) thumb.recycle();
+            decoded.recycle();
+        }
+        File replacement = new File(jpeg.getPath() + ".META");
+        try {
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.BufferedInputStream(new FileInputStream(jpeg)));
+            try {
+                OutputStream out = new BufferedOutputStream(new FileOutputStream(replacement), 65536);
+                try {
+                    if (in.readUnsignedShort() != 0xffd8) throw new IOException("Invalid JPEG start");
+                    out.write(255); out.write(216); out.write(metadata);
+                    // Strip encoder metadata (JFIF/EXIF); retain tables and compressed pixels exactly.
+                    while (true) {
+                        int marker = in.readUnsignedShort();
+                        if ((marker & 0xff00) != 0xff00) throw new IOException("Invalid JPEG marker");
+                        int length = in.readUnsignedShort();
+                        if (length < 2) throw new IOException("Invalid JPEG segment length");
+                        byte[] segment = new byte[length - 2]; in.readFully(segment);
+                        if (marker < 0xffe0 || marker > 0xffef) {
+                            out.write(marker >> 8); out.write(marker); out.write(length >> 8); out.write(length); out.write(segment);
+                        }
+                        if (marker == 0xffda) break;
+                    }
+                    byte[] buffer = new byte[65536]; int n;
+                    while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+                } finally { out.close(); }
+            } finally { in.close(); }
+            if (!jpeg.delete() || !replacement.renameTo(jpeg)) throw new IOException("Cannot finalize copy metadata");
+        } finally { replacement.delete(); }
     }
 
     private Develop.Gate gate() {

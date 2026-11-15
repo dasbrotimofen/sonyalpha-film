@@ -127,7 +127,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     private boolean menuOpen;
     private int menuRow = ROW_FILM;
     private final Set<String> favourites = new LinkedHashSet<String>();
-    // After-shot develop effects; any of them makes a developed copy in FILMSIM/DEV
+    // After-shot develop effects; any of them makes a developed copy in DCIM/nnnFILMS
     private boolean halation;
     private int grain;
     private boolean lightLeak;
@@ -272,7 +272,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                     public void onDone(final String source, final File result, final long millis) {
                         runOnUiThread(new Runnable() {
                             public void run() {
-                                log("developed " + source + " -> " + result.getName() + " in " + millis + " ms: " + developer.lastTiming + " (" + developer.memNote + ")");
+                                log("developed " + source + " -> " + result.getPath() + " in " + millis + " ms: " + developer.lastTiming + " (" + developer.memNote + ")");
                                 showMessage("Developed copy saved: " + result.getName() + " (" + (millis / 1000) + " s)");
                                 if (playback) {
                                     if (darkFilm == null) showPhoto();
@@ -1023,7 +1023,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     }
 
     private void developHint() {
-        if (developOn()) showMessage("After each shot a developed copy goes to FILMSIM/DEV");
+        if (developOn()) showMessage("After each shot a developed copy goes in DCIM/nnnFILMS");
         refreshFilmBar();
     }
 
@@ -1118,7 +1118,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         sb.append(menuRow + 1).append('/').append(MENU_ROWS.length).append("  up/down: row   left/right: change   Fn: close");
         if ((menuRow == ROW_FILM || menuRow == ROW_BRAND) && SPEKTRAFILM.equals(brand)) sb.append("\n").append(SPEKTRAFILM_CREDIT);
         else if (menuRow == ROW_FILM) sb.append("\nC2: favourite   Delete: no film");
-        else if (menuRow >= ROW_HALATION && menuRow <= ROW_SIZE) sb.append("\nAdded after the shot to a copy in FILMSIM/DEV");
+        else if (menuRow >= ROW_HALATION && menuRow <= ROW_SIZE) sb.append("\nAdded after the shot to a copy in DCIM/nnnFILMS");
         else if (menuRow == ROW_FRONT || menuRow == ROW_REAR) sb.append("\nAperture needs a lens the camera can control");
         picker.setText(sb.toString());
     }
@@ -1765,6 +1765,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         String info = "";
         int orientation = 1;
         String name = null;
+        String folderName = null;
         try {
             OptimizedImageFactory.Options o = new OptimizedImageFactory.Options();
             o.imageType = 3;
@@ -1782,6 +1783,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                 orientation = ci.getAttributeInt(AvindexContentInfo.TAG_ORIENTATION, 1);
                 // playback hands out avindex:// ids; the file name comes from the photo's info
                 name = ci.getAttribute(AvindexContentInfo.TAG_DCF_TBL_FILE_NAME);
+                folderName = ci.getAttribute(AvindexContentInfo.TAG_DCF_TBL_DIR_NAME);
             }
             playView.setDisplayType(OptimizedImageView.DisplayType.DISPLAY_TYPE_CENTER_INNER);
             playView.setOptimizedImage(img);
@@ -1790,10 +1792,13 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         }
         releasePlayImage();
         playImage = img;
-        if (name == null || name.length() == 0) {
+        if (name == null || name.length() == 0 || folderName == null) {
             try {
                 AvindexContentInfo full = AvindexStore.Images.Media.getImageInfo(data);
-                if (full != null) name = full.getAttribute(AvindexContentInfo.TAG_DCF_TBL_FILE_NAME);
+                if (full != null) {
+                    name = full.getAttribute(AvindexContentInfo.TAG_DCF_TBL_FILE_NAME);
+                    folderName = full.getAttribute(AvindexContentInfo.TAG_DCF_TBL_DIR_NAME);
+                }
             } catch (Throwable t) {
                 log("file name lookup failed: " + t);
             }
@@ -1801,7 +1806,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
         if (name == null || name.length() == 0) name = new File(data).getName();
         File devDir = new File(new File(Environment.getExternalStorageDirectory(), "FILMSIM"), "DEV");
         File actual = new File(data);
-        playFile = actual.isFile() ? actual : findPhoto(name);
+        playFile = actual.isFile() ? actual : findPhoto(name, folderName);
         File dev = playFile == null ? Developer.newestCopy(devDir, name) : Developer.newestCopy(devDir, playFile);
         boolean hasDev = dev != null;
         if (dev == null) dev = new File(devDir, Developer.outName(name) + ".JPG");
@@ -1884,20 +1889,23 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     // ---------------- darkroom ----------------
 
     /** Finds a photo's file under DCIM. A RAW with a JPEG beside it gives the JPEG, which has the full picture. */
-    private static File findPhoto(String name) {
+    private static File findPhoto(String name, String folderName) {
         File[] dirs = new File(Environment.getExternalStorageDirectory(), "DCIM").listFiles();
         if (dirs == null || name == null) return null;
+        File found = null;
         for (File d : dirs) {
+            if (folderName != null && !d.getName().equalsIgnoreCase(folderName)) continue;
             File f = new File(d, name);
             if (!f.isFile()) continue;
             int dot = name.lastIndexOf('.');
             if (dot > 0 && name.toUpperCase().endsWith(".ARW")) {
                 File jpeg = new File(d, name.substring(0, dot) + ".JPG");
-                if (jpeg.isFile()) return jpeg;
+                if (jpeg.isFile()) f = jpeg;
             }
-            return f;
+            if (found != null) return null; // Ambiguous basename: never choose another folder's photo.
+            found = f;
         }
-        return null;
+        return found;
     }
 
     /** Films in darkroom order: favourites first, then every film by brand. Fills starts with where each group begins. */
