@@ -68,6 +68,25 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     private static final int MAG_STEP = 100, MAG_LIMIT = 800;
 
     private final Handler handler = new Handler();
+    private MediaReload mediaReload;
+    private File pendingMediaReload;
+    private final Runnable reloadWhenIdle = new Runnable() {
+        public void run() {
+            if (pausing || pendingMediaReload == null) return;
+            if (takingPicture || recording || writingVideo || developing > 0) {
+                handler.postDelayed(this, 500);
+                return;
+            }
+            File copy = pendingMediaReload;
+            pendingMediaReload = null;
+            if (mediaReload != null) mediaReload.cancel();
+            mediaReload = new MediaReload(handler, getApplicationContext().getContentResolver(),
+                    new MediaReload.Listener() {
+                        public void report(String text) { if (!pausing) log(text); }
+                    });
+            mediaReload.start(copy);
+        }
+    };
 
     private FilmLibrary library;
     private SurfaceView surfaceView;
@@ -263,6 +282,10 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                         runOnUiThread(new Runnable() {
                             public void run() {
                                 developing = queued;
+                                if (queued == 0 && pendingMediaReload != null) {
+                                    handler.removeCallbacks(reloadWhenIdle);
+                                    handler.postDelayed(reloadWhenIdle, 500);
+                                }
                                 refreshFilmBar();
                                 if (playback) refreshPlayInfo();
                             }
@@ -274,7 +297,9 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                             public void run() {
                                 log("developed " + source + " -> " + result.getPath() + " in " + millis + " ms: " + developer.lastTiming + " (" + developer.memNote + ")");
                                 showMessage("Saved " + result.getParentFile().getName() + "/" + result.getName()
-                                        + "\nAfter exit: Setup > Recover Image DB");
+                                        + "\nRefreshing media; wait 15 s before exit");
+                                // A full still-image load covers all copies; observe the latest in this batch.
+                                pendingMediaReload = result;
                                 if (playback) {
                                     if (darkFilm == null) showPhoto();
                                     else {
@@ -319,6 +344,8 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
     protected void onPause() {
         super.onPause();
         pausing = true;
+        pendingMediaReload = null;
+        if (mediaReload != null) mediaReload.cancel();
         pendingCapture = null;
         developer.cancel();
         handler.removeCallbacksAndMessages(null);

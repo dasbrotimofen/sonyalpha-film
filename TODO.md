@@ -1,6 +1,21 @@
 # To do
 
-Current build: **v1.10.10-test11** (version code 52). Camera validation is tracked separately below.
+Current build: **v1.10.10-test13** (version code 54). Camera validation is tracked separately below.
+
+## Test13: Sony database-update experiment
+
+- [x] Confirm media-ID argument from the decompiled Digital Filter `AvindexStoreFiles` adapter. Replace loadMedia with runtime-checked `Files.waitAndUpdateDatabase(ContentResolver, String)`; log missing API, invocation errors, return value and index presence independently.
+- [x] Retain background execution, pause cancellation, 12-second observation watchdog and single in-flight native-call guard. Observation timeout does not terminate a native call; no further request starts until it returns. JPEG output is unchanged.
+- [ ] Validate on a6500 FW1.04: one developed photo, wait 15 seconds, check gallery before recovery and then after recovery, without USB or card reinsertion. Inspect LOG.TXT afterward. Desktop tests cannot establish Sony runtime behavior.
+- [x] Test13 failed to resolve visibility: DSC04891.JPG saved in 117FILMS; Files.waitAndUpdateDatabase was available and returned true immediately for media 1000, but the copy was still absent from the queried Sony index after ten seconds. User confirmed gallery visibility also failed after manual database recovery. Neither this call nor test12's loadMedia reproduces the successful card-reinsertion refresh.
+
+## Test12: Sony media-load experiment
+
+- [x] Request `AvindexStore.loadMedia(mediaId, CONTENT_TYPE_LOAD_STILL)` on a background thread after the development queue empties and capture/video are idle. Check exact DCF folder/file numbers in the index and log outcomes. Query failures do not prevent the load request.
+- [x] Bound observation to 12 seconds, cancel observation on pause, and prevent overlapping native requests even if a call blocks. Do not use the native unbounded wait, unmount storage, or modify the database directly. Saved JPEGs remain intact on refresh errors.
+- [ ] Confirm gallery behavior before recovery and after recovery without USB, card reinsertion or battery removal. Index presence alone does not prove gallery display. Hardware execution cannot be validated by desktop tests.
+- [x] Test12 camera result: copies DSC04889 and DSC04890 were saved in 115FILMS. For both, the log reports `indexed before=false, media=1000`, `loadMedia returned true`, then `copy not found in Sony index` after ten seconds. User confirmed neither normal playback nor subsequent database recovery revealed them before USB connection. The load API call ran but did not solve discovery; investigate external-volume scanning/media remount behavior rather than repeating loadMedia alone.
+- [x] Test11 user result: recovery alone was insufficient; USB disconnect, battery removal or SD-card reinsertion made copies visible. Waiting one or five minutes did not substitute for media reset. This narrows the investigation to media state but does not identify the exact cache/service.
 
 ## Test11: direct JPEG publication experiment
 

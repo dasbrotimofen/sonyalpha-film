@@ -18,7 +18,8 @@ import java.util.LinkedList;
  * Background queue that makes developed copies (halation, grain, light leaks, and film looks chosen in
  * playback) in a separate numbered DCIM/FILMS folder, at a half (Large) or quarter (Small) of the photo's width and height.
  * A RAW file is developed from the JPEG preview stored inside it. The original photo is only ever read.
- * Each copy is written to a .TMP file and renamed when complete, so a cut-off run never leaves a broken JPEG.
+ * Each copy is prepared in a .TMP file, then copied to a newly created JPG and synced.
+ * Handled publication failures remove partial JPGs; sudden power loss can still leave one.
  */
 public class Developer {
     public interface Listener {

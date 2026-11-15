@@ -31,7 +31,11 @@ You choose a film, the screen shows it in real time, and your JPEGs and videos c
 - Keeps a list of which film you used for each photo in `FILMSIM/SHOTS.TXT` on the card
 - Everything it changes is put back when you leave the app
 
-## Recent changes (v1.10.10-test11)
+## Recent changes (v1.10.10-test13)
+
+- Test13 replaces test12's unsuccessful media-load call with an experimental `AvindexStore.Files.waitAndUpdateDatabase(resolver, mediaId)` request. A [Sony Digital Filter adapter call site](https://github.com/up209d/open-memories-app-ai/blob/main/reference-apps/digital-filter/app/src/main/java/com/sony/imaging/app/base/playback/contents/aviadapter/AvindexStoreFiles.java) confirms the media-ID argument. Runtime reflection checks availability; logs distinguish missing APIs, errors, return values and actual index presence. The 12-second watchdog only bounds observation; it cannot force a blocked native call to return. Gallery compatibility still needs camera validation.
+
+- Test12 experimentally requests Sony's `AvindexStore.loadMedia` for still images after the development queue drains and the camera is idle. It logs the return value and checks the latest copy's folder/file numbers in Sony's index. Observation stops after 12 seconds; a blocked native call is not forcibly terminated or duplicated. The app does not unmount the card. Gallery refresh is not yet confirmed.
 
 - Test11 changes final publication to create the `.JPG` directly, copy the completed JPEG bytes, sync and close it, then remove the temporary file. Existing files are never overwritten and failed partial copies are removed when possible. JPEG encoding and EXIF are unchanged. This tests a save-path hypothesis: unchanged test10 copies all displayed after PC copying and database recovery, but app-created copies did not. Camera confirmation is still required; continue using Recover Image DB after exiting the app.
 
@@ -90,7 +94,7 @@ DCIM/10061115/DSC04869.JPG   original
 DCIM/101FILMS/DSC04870.JPG   developed copy
 ```
 
-After development finishes, exit FilmSim and run **MENU > Setup > Recover Image DB**, then open the developed copy in playback or **Send to Smartphone**. Automatic registration is not implemented. The save message shows the copy's folder/name and reminds you to recover the database. Sony documents recovery in the [a6500 playback guide](https://helpguide.sony.net/ilc/1640/v1/en/contents/TP0001273844.html).
+For the test13 experiment, develop one photo, wait 15 seconds after its saved message without taking another shot, then exit FilmSim and check normal playback before running recovery. If missing, run **MENU > Setup > Recover Image DB** and check again. Record which step made it appear and retain `FILMSIM/LOG.TXT`. Test11 required a media reset (USB mass-storage disconnect or SD-card reinsertion; battery removal also worked); waiting alone did not help. Test12's load request returned true but did not discover the copies. Test13 attempts a database update, not verified automatic registration. Sony documents recovery in the [a6500 playback guide](https://helpguide.sony.net/ilc/1640/v1/en/contents/TP0001273844.html).
 
 In the latest a6500 test, all four diagnostic images in a fresh `104FILMS` folder displayed, including an unchanged test8 developed JPEG. Only the original camera JPEG could be magnified. **Use the original for checking focus at high magnification; developed copies are for viewing and transfer.** The test does not isolate why earlier entries failed: fresh filenames, copying and database recovery changed together. Test9 retains the tested EXIF/thumbnail format and allocates fresh numbers; repeatability of automatic saves still needs confirmation.
 
