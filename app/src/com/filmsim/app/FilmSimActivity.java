@@ -273,7 +273,8 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                         runOnUiThread(new Runnable() {
                             public void run() {
                                 log("developed " + source + " -> " + result.getPath() + " in " + millis + " ms: " + developer.lastTiming + " (" + developer.memNote + ")");
-                                showMessage("Developed copy saved: " + result.getName() + " (" + (millis / 1000) + " s)");
+                                showMessage("Saved " + result.getParentFile().getName() + "/" + result.getName()
+                                        + "\nAfter exit: Setup > Recover Image DB");
                                 if (playback) {
                                     if (darkFilm == null) showPhoto();
                                     else {
@@ -288,7 +289,7 @@ public class FilmSimActivity extends Activity implements SurfaceHolder.Callback,
                     public void onFailed(final String source, final Throwable error) {
                         runOnUiThread(new Runnable() {
                             public void run() {
-                                log("develop " + source + " failed: " + error);
+                                log("develop " + source + " failed: " + android.util.Log.getStackTraceString(error));
                                 showMessage("Developing failed: " + error.getMessage());
                             }
                         });

@@ -1,12 +1,27 @@
 # To do
 
-Current build: **v1.10.10-test6** (version code 47). Desktop regression tests and APK signature/alignment verification pass. Camera validation is tracked separately below.
+Current build: **v1.10.10-test11** (version code 52). Camera validation is tracked separately below.
+
+## Test11: direct JPEG publication experiment
+
+- [x] Replace final TMP-to-JPG rename with exclusive creation of the final JPG, byte-for-byte copy, flush, file-descriptor sync and close. Remove the temporary only after successful publication; remove partial output on failure and report cleanup failure if it cannot be removed.
+- [x] Add regression coverage for multiple copy buffers, collision protection, no rename, injected read failure after a partial write, cleanup and retry. Log the direct JPG publication method on successful development.
+- [ ] On camera, take one new photo, wait for the saved message, exit and recover the image database. Confirm the developed copy appears without a PC copy. This is an experiment, not confirmed gallery compatibility.
+
+## Completed: v1.10.10-test10
+
+- [x] Address test9's `Cannot read image numbers in .../106FILMS` allocation failure. Null listings in FilmSim-owned output folders now use direct candidate-file and reservation checks; unreadable unowned folders still fail safely.
+- [x] Add regression coverage for null listings, ownership, occupied JPEG/RAW/temporary files and reservations. Build and verify the signed APK.
+- [x] Test10 development succeeds on the a6500: two 1500x1000 copies and their 160x120 / 4:2:2 thumbnails decode independently. EXIF dimensions match the main image.
+- [ ] Resolve automatic output remaining invisible after Recover Image DB, including after card formatting. Local `build/gallery-test10.zip` contains unchanged copies in fresh folders, a folder with an original control, and the previously visible developed diagnostic file to distinguish JPEG compatibility from file/folder registration.
+- [x] User confirms all five test10 diagnostic files are visible after PC copying/recovery, including a folder containing only developed copies. The current JPEG bytes can display; an original camera JPEG is not needed in the same folder. App publication currently renames `.TMP` to `.JPG` without media registration. Investigate publication/registration and folder state next; this test also changed names and folder numbers, so it does not prove rename is the cause.
+- [ ] Revisit fresh-number allocation: it avoids existing numbers but does not reserve numbers in Sony's own capture counter. On test10 the next original reused 04879 in a different folder. There was no overwrite; copy 04880 was also invisible despite having no duplicate, so this alone does not explain the failure.
 
 ## Priority: validate DCIM export and Imaging Edge Mobile
 
 - [ ] On the a6500, develop a new photo and confirm that the copy is in its separate numbered FILMS folder under DCIM, displays in FilmSim, and leaves the original unchanged.
 - [x] Confirm manual DSC renaming plus database recovery makes a developed copy visible and transferable in Imaging Edge.
-- [ ] Verify test6 EXIF dimensions and developed thumbnail, and test magnification on camera.
+- [x] Verify corrected EXIF/thumbnail and test magnification: originals magnify, developed diagnostic copies display without magnification; accepted limitation.
 - [ ] Take another normal photo after recovery to check the camera recording-folder selection and numbering.
 - [ ] Check normal camera playback and Imaging Edge Mobile transfer before and after Recover Image DB. Eight-character filenames and DCIM placement do not establish Sony database compatibility; automatic registration is not implemented.
 - [ ] If copies remain invisible, investigate verified Sony image registration/export APIs and DCF numbering requirements before claiming wireless-transfer support.
@@ -36,6 +51,28 @@ Current build: **v1.10.10-test6** (version code 47). Desktop regression tests an
 - [ ] Decide whether to persist the new shooting-control choices across app restarts. They currently survive camera reopenings within the same activity session only.
 
 Spektrafilm LUT generation still requires the external spektrafilm checkout and its Python dependencies; the LUT sources are not included here. See `tools/spektrafilm/bake.py` and the README. Further tone tuning should be judged on full-size photos and on camera, including brightness and shadow detail.
+
+## Completed: v1.10.10-test9
+
+- [x] Retain tested test8 JPEG format; no speculative metadata changes after all diagnostic variants displayed.
+- [x] Allocate fresh image numbers across DCIM and persistent FilmSim reservations, matching the successful diagnostics more closely. Preserve source mappings and non-overwrite checks.
+- [x] Show output folder/filename and database recovery reminder after development; document original-only magnification.
+- [ ] Confirm repeated automatic save/recovery cycles with test9. Diagnostic copies worked, but the cause of earlier same-number/folder playback failures remains unproven.
+
+## Completed: v1.10.10-test8
+
+- [x] Inspect actual test7 JPEG: thumbnail present with valid offsets, but 160x106 / 4:2:0, with no interoperability IFD. Original Sony thumbnail is 160x120 / 4:2:2.
+- [x] Generate fixed 160x120 black-padded thumbnails with baseline 4:2:2 encoding and standard Huffman tables; restore R98 / 0100 interoperability tags. Main-image processing remains unchanged.
+- [x] Add tests for thumbnail dimensions, sampling, padding, decoded colours/MCU placement and interoperability tags.
+- [x] Inspect test8 output on card: actual thumbnail decodes as 160x120 / 4:2:2, R98/0100 present, dimensions correct; main and thumbnail decode with Pillow. User still reports camera playback failure.
+- [x] All four diagnostic files display after copy/recovery, including unchanged test8 output. Only DSC04878 (original) magnifies. User accepts original-only magnification. Exact cause of earlier playback failures is not isolated.
+
+## Completed: v1.10.10-test7
+
+- [x] Address test6 ENOENT during output setup: use 8.3 OWNER.TXT / DSCxxxxx.SRC records under FILMSIM/INDEX instead of DCIM dotfiles. Use an 8.3 .MET temporary filename for metadata rewriting.
+- [x] Include index paths and development stack traces in failure logs.
+- [x] Run metadata regression tests against a real a6500 JPEG from the failed session, in addition to the synthetic endian/thumbnail tests.
+- [x] Development succeeds with test7; copies register after recovery and are visible in Imaging Edge, but camera playback reports Unable to display. Exact storage-layer rejection of dotfiles remains inferred from the empty output folders and ENOENT log.
 
 ## Completed: v1.10.10-test6
 

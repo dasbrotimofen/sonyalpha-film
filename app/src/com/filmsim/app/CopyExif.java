@@ -86,6 +86,20 @@ public final class CopyExif {
         return data;
     }
 
+    /** Center an already scaled image on the fixed DCF canvas and encode standard 4:2:2 JPEG. */
+    public static byte[] thumbnail(int[] pixels, int width, int height) throws IOException {
+        if (width < 1 || height < 1 || width > 160 || height > 120 || pixels.length < width * height)
+            throw new IOException("Invalid thumbnail pixels");
+        int[] canvas = new int[160 * 120];
+        int left = (160 - width) / 2, top = (120 - height) / 2;
+        for (int y = 0; y < height; y++) System.arraycopy(pixels, y * width, canvas, (y + top) * 160 + left, width);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        // Empty APP1 suppresses JFIF: an embedded Exif thumbnail only needs JPEG tables and image data.
+        Develop.JpegWriter writer = new Develop.JpegWriter(bytes, 160, 120, 85, new byte[0], true);
+        writer.writeRows(canvas, 120); writer.finish();
+        return bytes.toByteArray();
+    }
+
     public static byte[] build(byte[] original, int width, int height, byte[] thumbnail) throws IOException {
         if (width <= 0 || height <= 0 || thumbnail == null || thumbnail.length > 30000)
             throw new IOException("Invalid copy dimensions or thumbnail");
@@ -119,6 +133,10 @@ public final class CopyExif {
         exif.put(0x9101, new Tag(7, 4, new byte[]{1,2,3,0}));
         exif.put(0xa001, shortTag(1));
         exif.put(0xa002, number(width)); exif.put(0xa003, number(height));
+        Map<Integer, Tag> interop = new TreeMap<Integer, Tag>();
+        interop.put(1, ascii("R98"));
+        interop.put(2, new Tag(7, 4, new byte[]{'0','1','0','0'}));
+        exif.put(0xa005, number(0));
         main.put(0x8769, number(0));
         if (!gps.isEmpty()) main.put(0x8825, number(0));
         Map<Integer, Tag> thumb = new TreeMap<Integer, Tag>();
@@ -127,14 +145,17 @@ public final class CopyExif {
         thumb.put(0x011a, new Tag(5, 1, resolution)); thumb.put(0x011b, new Tag(5, 1, resolution));
         thumb.put(0x0128, shortTag(2));
         thumb.put(0x0201, number(0)); thumb.put(0x0202, number(thumbnail.length));
-        int e = 8 + tableSize(main), g = e + tableSize(exif), t = g + (gps.isEmpty() ? 0 : tableSize(gps));
+        int e = 8 + tableSize(main), g = e + tableSize(exif), inter = g + (gps.isEmpty() ? 0 : tableSize(gps));
+        int t = inter + tableSize(interop);
         int data = t + tableSize(thumb);
+        exif.put(0xa005, number(inter));
         main.put(0x8769, number(e)); if (!gps.isEmpty()) main.put(0x8825, number(g));
         byte[] out = new byte[65527]; out[0] = 'I'; out[1] = 'I'; put16(out, 2, 42); put32(out, 4, 8);
         try {
             data = writeTable(out, 8, main, t, data);
             data = writeTable(out, e, exif, 0, data);
             if (!gps.isEmpty()) data = writeTable(out, g, gps, 0, data);
+            data = writeTable(out, inter, interop, 0, data);
             // Thumbnail IFD has two out-of-line rationals before its JPEG bytes.
             thumb.put(0x0201, number(data + 16));
             data = writeTable(out, t, thumb, 0, data);

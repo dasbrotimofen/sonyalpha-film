@@ -38,12 +38,16 @@ public class PhotoFilesTest {
             File otherSource = new File(dcim, "102MSDCF/DSC00002.JPG");
             check(otherSource.getParentFile().mkdirs(), "second source folder");
             File b = PhotoFiles.copyDirectory(root, otherSource);
+            check(new File(root, "FILMSIM/INDEX/101FILMS/OWNER.TXT").isFile(), "8.3 owner stored outside DCIM");
+            check(a.list().length == 0, "no metadata files created in image folder");
             check(a.getName().equals("101FILMS") && b.getName().equals("103FILMS"), "allocate distinct unused numbered folders");
             check(a.equals(PhotoFiles.copyDirectory(root, raw)), "RAW+JPEG share output folder");
             File copy = PhotoFiles.allocateCopy(root, jpg);
-            check(copy.getName().equals("DSC00002") && copy.getParentFile().equals(a), "retain source number in FILMS folder");
+            check(copy.getName().equals("DSC00003") && copy.getParentFile().equals(a), "use fresh number distinct from camera originals");
+            check(new File(root, "FILMSIM/INDEX/101FILMS/DSC00003.SRC").isFile(), "8.3 source mapping outside DCIM");
+            check(a.list().length == 0, "reservation does not create DCIM dotfiles");
             File version = PhotoFiles.allocateCopy(root, raw);
-            check(version.getName().equals("DSC00003"), "queued reservation cannot collide");
+            check(version.getName().equals("DSC00004"), "queued reservation cannot collide");
             Map<String, String> captured = PhotoFiles.snapshot(dcim);
             File developed = new File(copy + ".JPG");
             Files.write(developed.toPath(), new byte[] {1,2,3});
@@ -51,8 +55,10 @@ public class PhotoFilesTest {
             check(PhotoFiles.newestMappedCopy(jpg).equals(developed), "persistent source lookup");
             check(PhotoFiles.newestMappedCopy(raw).equals(developed), "RAW and JPEG resolve same copy");
             check(PhotoFiles.newestMappedCopy(otherSource) == null, "same-number different folder not confused");
-            Files.write(new File(a, "DSC00004.ARW").toPath(), new byte[] {1});
-            check(PhotoFiles.allocateCopy(root, jpg).getName().equals("DSC00005"), "RAW originals in output folder are never reused");
+            Files.write(new File(a, "DSC00005.ARW").toPath(), new byte[] {1});
+            check(PhotoFiles.allocateCopy(root, jpg).getName().equals("DSC00006"), "RAW originals in output folder are never reused");
+            File crossFolder = PhotoFiles.allocateCopy(root, otherSource);
+            check(crossFolder.getName().equals("DSC00007"), "reserve numbers across all FilmSim folders");
             check(PhotoFiles.snapshot(dcim).size() == captured.size() + 1, "unmapped camera files remain detectable even in FILMS");
             try {
                 PhotoFiles.copyDirectory(root, new File(root, "outside.JPG"));

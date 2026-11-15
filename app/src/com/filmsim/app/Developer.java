@@ -225,6 +225,7 @@ public class Developer {
             throw new IOException("Copy cancelled or destination already exists; existing copy kept");
         }
         PhotoFiles.publish(tmp, done);
+        lastTiming += "; direct JPG write + sync";
         return done;
     }
 
@@ -244,14 +245,15 @@ public class Developer {
             double scale = Math.min(160.0 / decoded.getWidth(), 120.0 / decoded.getHeight());
             thumb = Bitmap.createScaledBitmap(decoded, Math.max(1, (int)(decoded.getWidth() * scale)),
                     Math.max(1, (int)(decoded.getHeight() * scale)), true);
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            if (!thumb.compress(Bitmap.CompressFormat.JPEG, 85, bytes)) throw new IOException("Thumbnail encoding failed");
-            metadata = CopyExif.build(original, bounds.outWidth, bounds.outHeight, bytes.toByteArray());
+            int[] pixels = new int[thumb.getWidth() * thumb.getHeight()];
+            thumb.getPixels(pixels, 0, thumb.getWidth(), 0, 0, thumb.getWidth(), thumb.getHeight());
+            byte[] thumbnail = CopyExif.thumbnail(pixels, thumb.getWidth(), thumb.getHeight());
+            metadata = CopyExif.build(original, bounds.outWidth, bounds.outHeight, thumbnail);
         } finally {
             if (thumb != null && thumb != decoded) thumb.recycle();
             decoded.recycle();
         }
-        File replacement = new File(jpeg.getPath() + ".META");
+        File replacement = new File(jpeg.getParentFile(), jpeg.getName().replaceFirst("\\.[^.]+$", ".MET"));
         try {
             java.io.DataInputStream in = new java.io.DataInputStream(new java.io.BufferedInputStream(new FileInputStream(jpeg)));
             try {

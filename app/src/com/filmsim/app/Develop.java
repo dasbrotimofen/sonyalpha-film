@@ -627,7 +627,7 @@ public class Develop {
             0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa};
 
         private final OutputStream out;
-        private final int width, height;
+        private final int width, height, mcuHeight;
         private final int[] qY = new int[64], qC = new int[64];
         private final int[][] dcL, dcC, acL, acC; // [symbol] -> {code, length}
         private int bitBuf, bitCount;
@@ -642,7 +642,13 @@ public class Develop {
         private final int[] zz = new int[64];
 
         public JpegWriter(OutputStream out, int width, int height, int quality, byte[] exifApp1) throws IOException {
+            this(out, width, height, quality, exifApp1, false);
+        }
+
+        /** The 4:2:2 mode is used for DCF thumbnails; normal output remains 4:2:0. */
+        public JpegWriter(OutputStream out, int width, int height, int quality, byte[] exifApp1, boolean thumbnail422) throws IOException {
             this.out = out;
+            mcuHeight = thumbnail422 ? 8 : 16;
             this.width = width;
             this.height = height;
             int scale = quality < 50 ? 5000 / quality : 200 - quality * 2;
@@ -692,7 +698,7 @@ public class Develop {
             for (int i = 0; i < 64; i++) out.write(qC[ZIGZAG[i]]);
             // SOF0
             out.write(new byte[] {(byte) 0xFF, (byte) 0xC0, 0, 17, 8, (byte) (height >> 8), (byte) height, (byte) (width >> 8), (byte) width, 3,
-                1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1});
+                1, (byte)(mcuHeight == 8 ? 0x21 : 0x22), 0, 2, 0x11, 1, 3, 0x11, 1});
             // DHT
             writeDht(0x00, DC_L_BITS, DC_L_VAL);
             writeDht(0x10, AC_L_BITS, AC_L_VAL);
@@ -715,8 +721,8 @@ public class Develop {
 
         /** Takes `count` rows (16 per call, fewer only for the last call) of packed RGB. */
         public void writeRows(int[] rgb, int count) throws IOException {
-            for (int r0 = 0; r0 < count; r0 += 16) {
-                int n = Math.min(16, count - r0);
+            for (int r0 = 0; r0 < count; r0 += mcuHeight) {
+                int n = Math.min(mcuHeight, count - r0);
                 fillMcuRow(rgb, r0, n);
                 encodeMcuRow();
                 rowsWritten += n;
@@ -727,15 +733,15 @@ public class Develop {
             int fullW = mcuW * 16;
             java.util.Arrays.fill(cb8, 0);
             java.util.Arrays.fill(cr8, 0);
-            for (int r = 0; r < 16; r++) {
+            for (int r = 0; r < mcuHeight; r++) {
                 int sr = r0 + Math.min(r, n - 1); // repeat the last row past the bottom edge
                 for (int x = 0; x < fullW; x++) {
                     int px = rgb[sr * width + Math.min(x, width - 1)];
                     int R = (px >> 16) & 255, G = (px >> 8) & 255, B = px & 255;
                     y16[r * fullW + x] = ((19595 * R + 38470 * G + 7471 * B) >> 16) - 128;
-                    int ci = (r >> 1) * (mcuW * 8) + (x >> 1);
-                    cb8[ci] += ((-11059 * R - 21709 * G + 32768 * B) >> 16) * 0.25f;
-                    cr8[ci] += ((32768 * R - 27439 * G - 5329 * B) >> 16) * 0.25f;
+                    int ci = (mcuHeight == 8 ? r : r >> 1) * (mcuW * 8) + (x >> 1);
+                    cb8[ci] += ((-11059 * R - 21709 * G + 32768 * B) >> 16) * (mcuHeight == 8 ? 0.5f : 0.25f);
+                    cr8[ci] += ((32768 * R - 27439 * G - 5329 * B) >> 16) * (mcuHeight == 8 ? 0.5f : 0.25f);
                 }
             }
         }
@@ -743,7 +749,7 @@ public class Develop {
         private void encodeMcuRow() throws IOException {
             int fullW = mcuW * 16, cW = mcuW * 8;
             for (int m = 0; m < mcuW; m++) {
-                for (int by = 0; by < 2; by++) {
+                for (int by = 0; by < mcuHeight / 8; by++) {
                     for (int bx = 0; bx < 2; bx++) {
                         for (int y = 0; y < 8; y++) {
                             System.arraycopy(y16, (by * 8 + y) * fullW + m * 16 + bx * 8, block, y * 8, 8);

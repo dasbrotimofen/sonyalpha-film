@@ -136,6 +136,8 @@ def build_tools():
     print('Built desktop tools', flush=True)
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.DevelopAlphaTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.PhotoFilesTest')
+    run(java_tool('java'), '-cp', out, 'com.filmsim.app.PhotoFilesListingTest')
+    run(java_tool('java'), '-cp', out, 'com.filmsim.app.PhotoFilesPublicationTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.CopyExifTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.ShootingControlsTest')
 
