@@ -135,6 +135,7 @@ def build_tools():
         '-Xlint:-options', '-d', out, argfile(out / 'sources.txt', sources))
     print('Built desktop tools', flush=True)
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.DevelopAlphaTest')
+    run(java_tool('java'), '-cp', out, 'com.filmsim.tools.DevelopPixelsTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.tools.PhotoFilesTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.app.PhotoFilesListingTest')
     run(java_tool('java'), '-cp', out, 'com.filmsim.app.PhotoFilesPublicationTest')

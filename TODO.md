@@ -1,6 +1,14 @@
 # To do
 
-Current build: **v1.10.10-test13** (version code 54). Camera validation is tracked separately below.
+Current build: **v1.10.10-test14** (version code 55). Camera validation is tracked separately below.
+
+## Test14: remove refresh experiments and reduce development work
+
+- [x] Remove MediaReload and all activity scheduling, timeout/polling and post-save wait messaging. Retain normal gallery queries; automatic registration remains unresolved.
+- [x] Allocate only grain tables used by the selected effects: omit float tiles without halation/leaks and chroma tiles for monochrome. Produce integer values in the existing preparation pass. Verify exact output against 32 SHA-256 pixel fixtures captured from test13, covering all grain levels, mono/colour, halation/leak combinations, tile wrapping and a partial final strip.
+- [x] Use one getPixels call per streaming strip with the same edge padding and guaranteed recycling. Add separate metadata/thumbnail and publication timings.
+- [ ] Compare on-camera development times and battery usage with test13 under matched settings. Reduced allocation is verified by code, not a measured battery-life improvement. Native/streaming execution still needs hardware validation.
+- [ ] Profile the slow native decode stage before changing decoder selection or mutable-bitmap strategy. Keep the confirmed thumbnail/EXIF path until new stage timings justify changing it.
 
 ## Test13: Sony database-update experiment
 

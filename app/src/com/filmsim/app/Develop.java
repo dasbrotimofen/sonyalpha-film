@@ -187,20 +187,33 @@ public class Develop {
         // film each have their own grain, so red reuses the fine field and blue the coarse one (the blue layer
         // is the grainiest in real film), read from a different place in the tile so they don't line up.
         float[] tileL = null, tileR = null, tileB = null;
+        int[] tileLi = null, tileRi = null, tileBi = null;
+        boolean floatGrain = opt.halation || opt.lightLeak;
         int tileX = rnd.nextInt(GRAIN_TILE), tileY = rnd.nextInt(GRAIN_TILE);
         if (opt.grain > 0) {
             float[] fine = grainField(cell * 0.45f, noiseSeed);
             float[] coarse = grainField(cell * 2.3f * 0.45f, noiseSeed + 101);
             int n = GRAIN_TILE * GRAIN_TILE, mask = GRAIN_TILE - 1;
-            tileL = new float[n];
-            tileR = new float[n];
-            tileB = new float[n];
+            // Blended rows need float tiles; other rows only read integer tiles.
+            // Monochrome never reads either chroma channel.
+            tileLi = new int[n];
+            if (floatGrain) tileL = new float[n];
+            if (!opt.monochrome) {
+                tileRi = new int[n]; tileBi = new int[n];
+                if (floatGrain) { tileR = new float[n]; tileB = new float[n]; }
+            }
             for (int ty = 0; ty < GRAIN_TILE; ty++) {
                 for (int tx = 0; tx < GRAIN_TILE; tx++) {
                     int k = ty * GRAIN_TILE + tx;
-                    tileL[k] = (0.8f * fine[k] + 0.6f * coarse[k]) * strength * GRAIN_LUMA;
-                    tileR[k] = fine[((ty + 173) & mask) * GRAIN_TILE + ((tx + 311) & mask)] * strength * GRAIN_CHROMA;
-                    tileB[k] = coarse[((ty + 97) & mask) * GRAIN_TILE + ((tx + 419) & mask)] * strength * GRAIN_CHROMA * 1.2f;
+                    float l = (0.8f * fine[k] + 0.6f * coarse[k]) * strength * GRAIN_LUMA;
+                    tileLi[k] = Math.round(l * 16);
+                    if (floatGrain) tileL[k] = l;
+                    if (!opt.monochrome) {
+                        float r = fine[((ty + 173) & mask) * GRAIN_TILE + ((tx + 311) & mask)] * strength * GRAIN_CHROMA;
+                        float b = coarse[((ty + 97) & mask) * GRAIN_TILE + ((tx + 419) & mask)] * strength * GRAIN_CHROMA * 1.2f;
+                        tileRi[k] = Math.round(r * 16); tileBi[k] = Math.round(b * 16);
+                        if (floatGrain) { tileR[k] = r; tileB[k] = b; }
+                    }
                 }
             }
         }
@@ -224,17 +237,6 @@ public class Develop {
         // whole-number copies for the fast path: tile values x16, weights x256
         int[] grainWeightI = new int[256];
         for (int i = 0; i < 256; i++) grainWeightI[i] = Math.round(grainWeight[i] * 256);
-        int[] tileLi = null, tileRi = null, tileBi = null;
-        if (tileL != null) {
-            tileLi = new int[tileL.length];
-            tileRi = new int[tileL.length];
-            tileBi = new int[tileL.length];
-            for (int i = 0; i < tileL.length; i++) {
-                tileLi[i] = Math.round(tileL[i] * 16);
-                tileRi[i] = Math.round(tileR[i] * 16);
-                tileBi[i] = Math.round(tileB[i] * 16);
-            }
-        }
 
         long tRead = 0, tFx = 0, tEnc = 0, tPrep = System.nanoTime() - startNs;
         for (int y0 = 0; y0 < h; y0 += STRIP) {

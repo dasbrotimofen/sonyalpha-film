@@ -31,7 +31,13 @@ You choose a film, the screen shows it in real time, and your JPEGs and videos c
 - Keeps a list of which film you used for each photo in `FILMSIM/SHOTS.TXT` on the card
 - Everything it changes is put back when you leave the app
 
-## Recent changes (v1.10.10-test13)
+## Recent changes (v1.10.10-test14)
+
+- Removed the experimental media-load/database-update worker and its index polling. Test12 and test13 returned success without fixing gallery discovery; the save message no longer asks for an extra 15-second wait.
+- Grain preparation now skips unused float tables for grain-only rows and skips chroma tables for monochrome films. This avoids 3 MiB of tile allocations for colour grain without halation/leaks, 4 MiB for monochrome with halation/leaks, and 5 MiB for monochrome grain alone. A second table-conversion pass is also removed. All 32 regression combinations retain identical pre-optimization output pixels.
+- Low-memory development copies decoded strips in one pixel-read call instead of one per row. Thumbnail/metadata and final save timings are now included in the log. Decoder selection, thumbnail generation and JPEG quality remain unchanged; actual speed and battery savings need camera measurement.
+
+### Earlier gallery experiments
 
 - Test13 replaces test12's unsuccessful media-load call with an experimental `AvindexStore.Files.waitAndUpdateDatabase(resolver, mediaId)` request. A [Sony Digital Filter adapter call site](https://github.com/up209d/open-memories-app-ai/blob/main/reference-apps/digital-filter/app/src/main/java/com/sony/imaging/app/base/playback/contents/aviadapter/AvindexStoreFiles.java) confirms the media-ID argument. Runtime reflection checks availability; logs distinguish missing APIs, errors, return values and actual index presence. The 12-second watchdog only bounds observation; it cannot force a blocked native call to return. Gallery compatibility still needs camera validation.
 
@@ -94,7 +100,7 @@ DCIM/10061115/DSC04869.JPG   original
 DCIM/101FILMS/DSC04870.JPG   developed copy
 ```
 
-For the test13 experiment, develop one photo, wait 15 seconds after its saved message without taking another shot, then exit FilmSim and check normal playback before running recovery. If missing, run **MENU > Setup > Recover Image DB** and check again. Record which step made it appear and retain `FILMSIM/LOG.TXT`. Test11 required a media reset (USB mass-storage disconnect or SD-card reinsertion; battery removal also worked); waiting alone did not help. Test12's load request returned true but did not discover the copies. Test13 attempts a database update, not verified automatic registration. Sony documents recovery in the [a6500 playback guide](https://helpguide.sony.net/ilc/1640/v1/en/contents/TP0001273844.html).
+Experimental media-refresh calls are disabled in test14. Wait for development to finish before exiting FilmSim; there is no additional 15-second refresh wait. Automatic gallery registration remains unresolved. On the tested a6500, recovery alone was insufficient; USB mass-storage disconnect or SD-card reinsertion made copies visible (battery removal also worked), while waiting alone did not. If needed, run **MENU > Setup > Recover Image DB**; only remove the card after powering off and waiting for card activity to stop. Sony documents recovery in the [a6500 playback guide](https://helpguide.sony.net/ilc/1640/v1/en/contents/TP0001273844.html).
 
 In the latest a6500 test, all four diagnostic images in a fresh `104FILMS` folder displayed, including an unchanged test8 developed JPEG. Only the original camera JPEG could be magnified. **Use the original for checking focus at high magnification; developed copies are for viewing and transfer.** The test does not isolate why earlier entries failed: fresh filenames, copying and database recovery changed together. Test9 retains the tested EXIF/thumbnail format and allocates fresh numbers; repeatability of automatic saves still needs confirmation.
 

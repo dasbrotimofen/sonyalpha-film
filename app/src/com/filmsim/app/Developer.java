@@ -213,9 +213,11 @@ public class Developer {
                 how = null;
             }
             if (how == null) how = developStreaming(src, tmp, opt, null);
+            long metadataStart = System.currentTimeMillis();
             rewriteCopyExif(tmp, exif);
             lastTiming = (opt.look != null ? "film " : "") + (opt.halation ? "halation " : "") + (opt.grain > 0 ? "grain" + opt.grain + " " : "")
-                    + (opt.lightLeak ? "leak " : "") + "| " + how;
+                    + (opt.lightLeak ? "leak " : "") + "| " + how
+                    + ", thumbnail + metadata " + (System.currentTimeMillis() - metadataStart) + " ms";
             ok = true;
         } finally {
             if (!ok) tmp.delete();
@@ -225,8 +227,9 @@ public class Developer {
             tmp.delete();
             throw new IOException("Copy cancelled or destination already exists; existing copy kept");
         }
+        long publishStart = System.currentTimeMillis();
         PhotoFiles.publish(tmp, done);
-        lastTiming += "; direct JPG write + sync";
+        lastTiming += "; direct JPG write + sync " + (System.currentTimeMillis() - publishStart) + " ms";
         return done;
     }
 
@@ -474,12 +477,14 @@ public class Developer {
                 Bitmap b = decoder.decodeRegion(r, o);
                 if (b == null) throw new IOException("region decode failed at row " + y);
                 int bw = Math.min(w, b.getWidth()), bh = Math.min(count, b.getHeight());
-                for (int row = 0; row < count; row++) {
-                    int srcRow = Math.min(row, bh - 1);
-                    b.getPixels(rgb, row * w, w, 0, srcRow, bw, 1);
-                    for (int x = bw; x < w; x++) rgb[row * w + x] = rgb[row * w + bw - 1];
-                }
-                b.recycle();
+                try {
+                    if (bw <= 0 || bh <= 0) throw new IOException("Empty decoded strip at row " + y);
+                    b.getPixels(rgb, 0, w, 0, 0, bw, bh);
+                    for (int row = 0; row < bh; row++)
+                        for (int x = bw; x < w; x++) rgb[row * w + x] = rgb[row * w + bw - 1];
+                    for (int row = bh; row < count; row++)
+                        System.arraycopy(rgb, (bh - 1) * w, rgb, row * w, w);
+                } finally { b.recycle(); }
             }
         };
         OutputStream os = new BufferedOutputStream(new FileOutputStream(tmp), 64 * 1024);
